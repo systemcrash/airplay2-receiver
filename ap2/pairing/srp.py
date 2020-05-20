@@ -4,6 +4,7 @@ from hashlib import sha512
 #
 # Inspired from pyhomekit: https://github.com/henridwyer/pyhomekit
 #
+from hexdump import hexdump
 
 N_3072 = """FFFFFFFF FFFFFFFF C90FDAA2 2168C234 C4C6628B 80DC1CD1 29024E08
            8A67CC74 020BBEA6 3B139B22 514A0879 8E3404DD EF9519B3 CD3A431B
@@ -63,11 +64,51 @@ def from_bytes(value, little_endian=False):
     return int.from_bytes(value, order)
 
 
-class SRPServer():
-    def __init__(self, username, password):
-        self.username = username
+class Srp():
+    def __init__(self):
         self.g = g
         self.N = N
+
+    @property
+    def salt(self):
+        return to_bytes(self.s)
+
+    @property
+    def session_key(self):
+        return to_bytes(self.K)
+
+    def dumpAll(self):
+        print("Salt")
+        hexdump(to_bytes(self.s))
+        print("x")
+        hexdump(to_bytes(self.x))
+        print("a")
+        hexdump(to_bytes(self.a))
+        print("b")
+        hexdump(to_bytes(self.b))
+        print("A")
+        hexdump(to_bytes(self.A))
+        print("B")
+        hexdump(to_bytes(self.B))
+        print("Verifier")
+        hexdump(to_bytes(self.v))
+        print("u")
+        hexdump(to_bytes(self.u))
+
+        print("S")
+        hexdump(to_bytes(self.S))
+        print("K")
+        hexdump(to_bytes(self.K))
+        print("M1")
+        hexdump(to_bytes(self.M1))
+        print("M2")
+        hexdump(to_bytes(self.M2))
+
+
+class SRPServer(Srp):
+    def __init__(self, username, password):
+        super(SRPServer, self).__init__()
+        self.username = username
         self.k = H(self.N, self.g, pad=True)
         self.s = random_int(n_bits=SALT_BITS)  # type: int
         self.x = H(self.s, H(username, password, sep=b":"))  # type: int
@@ -91,9 +132,33 @@ class SRPServer():
         self.accessory_ltpk = b''  # type: bytes
         self.accessory_signature = b''  # type: bytes
 
-    @property
-    def salt(self):
-        return to_bytes(self.s)
+    # For TESTS only
+    def testInit(self, username, password, salt, a, b, A, B):
+        self.username = username
+        self.g = g
+        self.N = N
+        self.k = H(self.N, self.g, pad=True)
+        self.s = from_bytes(salt)  # type: int
+        self.x = H(self.s, H(username, password, sep=b":"))  # type: int
+        self.v = pow(self.g, self.x, self.N)
+        self.b = from_bytes(b)
+        self.B = from_bytes(B)  # type: int
+        self.a = from_bytes(a)  # type: int
+        self.A = from_bytes(A)  # type: int
+        self.u = 0  # type: int
+        self.S = 0  # type: int
+        self.K = 0  # type: int
+        self.M1 = 0  # type: int
+        self.M2 = 0  # type: int
+        self.X = 0  # type: int
+        self.state = 0
+        self.signing_key = None  # type: Optional[ed25519.SigningKey]
+        self.verifying_key = None  # type: Optional[ed25519.VerifyingKey]
+        self.device_info = b''  # type: bytes
+        self.device_signature = b''  # type: bytes
+        self.accessory_pairing_id = b''  # type: bytes
+        self.accessory_ltpk = b''  # type: bytes
+        self.accessory_signature = b''  # type: bytes
 
     @property
     def public_key(self):
@@ -103,10 +168,6 @@ class SRPServer():
     def proof(self):
         return to_bytes(self.M2)
 
-    @property
-    def session_key(self):
-        return to_bytes(self.K)
-
     def set_client_public(self, A):
         self.A = from_bytes(A)
         self.u = H(self.A, self.B, pad=True)
@@ -114,10 +175,59 @@ class SRPServer():
         self.K = H(self.S)
         self.M1 = H(H(self.N) ^ H(self.g), H(self.username), self.s, self.A, self.B, self.K)
 
-
     def verify(self, M1_client):
         if self.M1 != from_bytes(M1_client):
             raise Exception("Authentication failed - invalid proof")
         self.M2 = H(self.A, self.M1, self.K)
         return True
 
+
+class SrpClient(Srp):
+    def __init__(self, username, password, salt):
+        super(SrpClient, self).__init__()
+        self.username = username
+        self.g = g
+        self.N = N
+        self.k = H(self.N, self.g, pad=True)
+        self.s = from_bytes(salt)  # type: int
+        self.x = H(self.s, H(username, password, sep=b":"))  # type: int
+        self.v = pow(self.g, self.x, self.N)
+        self.b = 0  # type: int
+        self.B = 0  # type: int
+        self.a = random_int(n_bits=RANDOM_BITS)  # type: int
+        self.A = pow(self.g, self.a, self.N)
+        self.u = 0  # type: int
+        self.S = 0  # type: int
+        self.K = 0  # type: int
+        self.M1 = 0  # type: int
+        self.M2 = 0  # type: int
+        self.X = 0  # type: int
+        self.state = 0
+        self.signing_key = None  # type: Optional[ed25519.SigningKey]
+        self.verifying_key = None  # type: Optional[ed25519.VerifyingKey]
+        self.device_info = b''  # type: bytes
+        self.device_signature = b''  # type: bytes
+        self.accessory_pairing_id = b''  # type: bytes
+        self.accessory_ltpk = b''  # type: bytes
+        self.accessory_signature = b''  # type: bytes
+
+    def set_server_public(self, B):
+        self.B = from_bytes(B)
+        self.u = H(self.A, self.B, pad=True)
+        # S = (B - (k * ((g^x)%N) )) ^ (a + (u * x)) % N
+        self.S = pow(self.B - (self.k * pow(self.g, self.x, self.N)), self.a + (self.u * self.x), self.N) % self.N
+        self.K = H(self.S)
+        self.M1 = H(H(self.N) ^ H(self.g), H(self.username), self.s, self.A, self.B, self.K)
+
+    @property
+    def public_key(self):
+        return to_bytes(self.A)
+
+    @property
+    def proof(self):
+        return to_bytes(self.M1)
+
+    def verify(self, M2_server):
+        if self.M2 != from_bytes(M2_server):
+            raise Exception("Authentication failed - invalid proof")
+        return True

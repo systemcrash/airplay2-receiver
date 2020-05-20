@@ -42,6 +42,8 @@ def get_volume():
                 pct = 45
         else: pct = 50
         vol = interpolate(pct, 45, 100, -30, 0)
+    elif subsys == "Windows":
+        vol = 100
     if vol == -30:
         return -144
     return vol

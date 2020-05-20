@@ -2,7 +2,6 @@ import socket
 import struct
 import multiprocessing
 
-import pyaudio
 from Crypto.Cipher import ChaCha20_Poly1305
 
 from ..alac.alac import AlacDecoder

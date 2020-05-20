@@ -19,46 +19,18 @@ from Crypto.Cipher import ChaCha20_Poly1305, AES
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
 from biplist import readPlistFromString, writePlistToString
 
+from ap2.pairing import srp
 from ap2.utils import get_volume, set_volume
-from ap2.pairing.hap import Hap, HAPSocket
+from ap2.pairing.hap import HAPSocket, HapClient, Hap, Tlv8
 from ap2.connections.event import Event
 from ap2.connections.stream import Stream
-
-# No Auth - coreutils, PairSetupMfi
-# MFi Verify fail error after pair-setup[2/5]
-FEATURES = 0x88340405f8a00
-# No Auth - HK and coreutils
-# Stops after pairing (setup [5/5] verify [2/2])with no supported auth error
-FEATURES = 0xc340405f8a00
-# No Auth = HK, coreutils, PairSetupMFi
-# MFi Verify fail error after pair-setup[2/5]
-FEATURES = 0x8c340405f8a00
-# Mfi Auth - HK and coreutils
-# All encrypt after pairing (setup [5/5] verify [2/2])
-FEATURES = 0xc340445f8a00
-# FairPlay - HK and coreutils
-# Stops after pairing (setup [5/5] verify [2/2])with no supported auth error
-FEATURES = 0xc340405fca00
-# FairPlay - HK and coreutils and transient
-# fp-setup after pair-setup[2/5]
-FEATURES = 0x1c340405fca00
-# MFi - HK and coreutils and transient
-# auth-setup after pair-setup[2/5]
-FEATURES = 0x1c340445f8a00
-# No Auth - No enc - PairSetupMFi
-# Works!!
-FEATURES = 0x8030040780a00
-# No Auth - No enc
-# No supported authentication types.
-# FEATURES = 0x30040780a00
-# FEATURES = 0x8030040780a00 | (1 << 27)
-
+from ap2.rtsp_client import RTSPConnection
 
 DEVICE_ID = None
 IPV4 = None
 IPV6 = None
 
-SERVER_VERSION = "366.0"
+CLIENT_VERSION = "409.16.81"
 HTTP_CT_BPLIST = "application/x-apple-binary-plist"
 HTTP_CT_OCTET = "application/octet-stream"
 HTTP_CT_PARAM = "text/parameters"
@@ -72,45 +44,6 @@ def setup_global_structs(args):
     global sonos_one_setup_data
     global second_stage_info
     global mdns_props
-
-    sonos_one_info = {
-        # 'OSInfo': 'Linux 3.10.53',
-        # 'PTPInfo': 'OpenAVNU ArtAndLogic-aPTP-changes a5d7f94-0.0.1',
-        'audioLatencies': [{'inputLatencyMicros': 0,
-                            'outputLatencyMicros': 400000,
-                            'type': 100},
-                           {'audioType': 'default',
-                            'inputLatencyMicros': 0,
-                            'outputLatencyMicros': 400000,
-                            'type': 100},
-                           {'audioType': 'media',
-                            'inputLatencyMicros': 0,
-                            'outputLatencyMicros': 400000,
-                            'type': 100},
-                           {'audioType': 'media',
-                            'inputLatencyMicros': 0,
-                            'outputLatencyMicros': 400000,
-                            'type': 102}],
-        # 'build': '16.0',
-        'deviceID': DEVICE_ID,
-        'features': FEATURES,
-        # 'features': 496155769145856, # Sonos One
-        # 'firmwareBuildDate': 'Nov  5 2019',
-        # 'firmwareRevision': '53.3-71050',
-        # 'hardwareRevision': '1.21.1.8-2',
-        'keepAliveLowPower': True,
-        'keepAliveSendStatsAsBody': True,
-        'manufacturer': 'Sonos',
-        'model': 'One',
-        'name': 'Camera da letto',
-        'nameIsFactoryDefault': False,
-        'pi': 'ba5cb8df-7f14-4249-901a-5e748ce57a93',  # UUID generated casually..
-        'protocolVersion': '1.1',
-        'sdk': 'AirPlay;2.0.2',
-        'sourceVersion': '366.0',
-        'statusFlags': 4,
-        # 'statusFlags': 0x404 # Sonos One
-    }
 
     second_stage_info = {
         "initialVolume": get_volume(),
@@ -135,35 +68,21 @@ def setup_global_structs(args):
         ]
     }
 
-    mdns_props = {
-        "srcvers": SERVER_VERSION,
-        "deviceid": DEVICE_ID,
-        "features": "%s,%s" % (hex(FEATURES & 0xffffffff), hex(FEATURES >> 32 & 0xffffffff)),
-        "flags": "0x4",
-        # "name": "GINO", # random
-        # "model": "GIO", # random
-        # "manufacturer": "Pino", # random
-        # "serialNumber": "01234xX321", # random
-        "protovers": "1.1",
-        "acl": "0",
-        "rsf": "0x0",
-        "fv": "p20.78000.12",
-        "pi": "5dccfd20-b166-49cc-a593-6abd5f724ddb",  # UUID generated casually
-        "gid": "5dccfd20-b166-49cc-a593-6abd5f724ddb",  # UUID generated casually
-        "gcgl": "0",
-        # "vn": "65537",
-        "pk": "de352b0df39042e201d31564049023af58a106c6d904b74a68aa65012852997f",
-    }
+class RTSPConnection2(RTSPConnection):
+    def parse_request(self):
+        print ("toto")
+
+    def __init__(self, host, port):
+        super(RTSPConnection2, self).__init__(host, port)
+        self.hap = None
+
 class AP2Client():
-
-    def __init(self, req):
-        self.ap2_client = http.client.HTTPConnection
-
-    def send_request(self):
-        self.ap2_client.request()
-
-class AP2Handler(http.server.BaseHTTPRequestHandler):
     pp = pprint.PrettyPrinter()
+    #connection = None
+
+    def __init__(self, host, port):
+        self.connection = RTSPConnection2(host, port)
+
 
     def parse_request(self):
         self.raw_requestline = self.raw_requestline.replace(b"RTSP/1.0", b"HTTP/1.1")
@@ -184,7 +103,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(response.encode())
 
     def version_string(self):
-        return "AirTunes/%s" % SERVER_VERSION
+        return "AirPlay/%s" % CLIENT_VERSION
 
     def do_GET(self):
         print(self.headers)
@@ -193,36 +112,6 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
             self.handle_info()
         else:
             print("GET %s Not implemented!" % self.path)
-            self.send_error(404)
-
-    def do_POST(self):
-        print(self.headers)
-        if self.path == "/command":
-            print("POST /command")
-            self.handle_command()
-        elif self.path == "/feedback":
-            print("POST /feedback")
-            self.handle_feedback()
-        elif self.path == "/audioMode":
-            print("POST /audioMode")
-            self.handle_audiomode()
-        elif self.path == "/auth-setup":
-            print("POST /auth-setup")
-            self.handle_auth_setup()
-        elif self.path == "/fp-setup":
-            print("POST /fp-setup")
-            self.handle_fp_setup()
-        elif self.path == "/fp-setup2":
-            print("POST /fp-setup2")
-            self.handle_auth_setup()
-        elif self.path == "/pair-setup":
-            print("POST /pair-setup")
-            self.handle_pair_setup()
-        elif self.path == "/pair-verify":
-            print("POST /pair-verify")
-            self.handle_pair_verify()
-        else:
-            print("POST %s Not implemented!" % self.path)
             self.send_error(404)
 
     def do_SETUP(self):
@@ -482,27 +371,63 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
 
-    def handle_pair_setup(self):
-        content_len = int(self.headers["Content-Length"])
+    def do_auth_setup(self):
+        self.connection.putrequest("POST", "/auth-setup", False, False)
+        #self.connection.putheader("Content-Length")
+        self.connection.putheader("CSeq", 1)
+        self.connection.putheader("Content-Length", 33)
+        self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
+        self.connection.putheader("User-Agent", self.version_string())
+        self.connection.putheader("X-Apple-HKP", 4)
+        self.connection.endheaders()
 
-        body = self.rfile.read(content_len)
-        hexdump(body)
+        body = b'\x01\x4E\xEA\xD0\x4E\xA9\x2E\x47\x69\xD2\xE1\xFB\xD0\x96\x81\xD5\x94\xA8\xEF\x18\x45\x4A\x24\xAE\xAF\xB3\x14\x97\x0D\xA0\xB5\xA3\x49'
+        self.connection.send(body)
 
-        if not self.server.hap:
-            self.server.hap = Hap()
-        res = self.server.hap.pair_setup(body)
+        res = self.connection.getresponse()
 
-        self.send_response(200)
-        self.send_header("Content-Length", len(res))
-        self.send_header("Content-Type", HTTP_CT_BPLIST)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-        self.wfile.write(res)
+        if res.status == 200:
+            data = res.read()
+            hexdump(data)
 
-        if self.server.hap.encrypted:
-            hexdump(self.server.hap.accessory_shared_key)
-            self.upgrade_to_encrypted(self.server.hap.accessory_shared_key)
+    def do_pair_setup(self):
+        if not self.connection.hap:
+            self.connection.hap = HapClient()
+        req = self.connection.hap.pair_setup_m1()
+
+        self.connection.putrequest("POST", "/pair-setup", False, False)
+        #self.connection.putheader("Content-Length")
+        self.connection.putheader("CSeq", 2)
+        self.connection.putheader("Content-Length", len(req))
+        self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
+        self.connection.putheader("User-Agent", self.version_string())
+        self.connection.putheader("X-Apple-HKP", 4)
+
+        self.connection.endheaders()
+        self.connection.send(req)
+
+        res = self.connection.getresponse()
+
+        if res.status == 200:
+            data = res.read()
+            hexdump(data)
+            req = self.connection.hap.pair_setup_m2_m3(data)
+            self.connection.putrequest("POST", "/pair-setup", False, False)
+            self.connection.putheader("CSeq", 3)
+            self.connection.putheader("Content-Length", len(req))
+            self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
+            self.connection.putheader("User-Agent", self.version_string())
+            self.connection.putheader("X-Apple-HKP", 4)
+
+            self.connection.endheaders()
+            self.connection.send(req)
+
+            res = self.connection.getresponse()
+
+            #if res.status == 200:
+            data = res.read()
+            hexdump(data)
+        return res
 
     def handle_pair_verify(self):
         content_len = int(self.headers["Content-Length"])
@@ -578,39 +503,6 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         print("----- ENCRYPTED CHANNEL -----")
 
 
-def register_mdns(receiver_name):
-    addresses = []
-    for ifen in ni.interfaces():
-        ifenaddr = ni.ifaddresses(ifen)
-        if ni.AF_INET in ifenaddr:
-            addresses.append(socket.inet_pton(ni.AF_INET,
-                                              ifenaddr[ni.AF_INET][0]["addr"]))
-        if ni.AF_INET6 in ifenaddr:
-            addresses.append(socket.inet_pton(ni.AF_INET6,
-                                              ifenaddr[ni.AF_INET6][0]["addr"].split("%")[0]))
-
-    info = ServiceInfo(
-        "_airplay._tcp.local.",
-        "%s._airplay._tcp.local." % receiver_name,
-        # addresses=[socket.inet_aton("127.0.0.1")],
-        addresses=addresses,
-        port=7000,
-        properties=mdns_props,
-        server="%s.local." % receiver_name,
-    )
-
-    zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
-    zeroconf.register_service(info)
-    print("mDNS service registered")
-    return (zeroconf, info)
-
-
-def unregister_mdns(zeroconf, info):
-    print("Unregistering...")
-    zeroconf.unregister_service(info)
-    zeroconf.close()
-
-
 def get_free_port():
     free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     free_socket.bind(('0.0.0.0', 0))
@@ -645,40 +537,30 @@ class AP2Server(socketserver.TCPServer):
 
 if __name__ == "__main__":
 
-    multiprocessing.set_start_method("spawn")
-    parser = argparse.ArgumentParser(prog='AirPlay 2 receiver')
-    parser.add_argument("-m", "--mdns", required=True, help="mDNS name to announce")
-    parser.add_argument("-n", "--netiface", required=True, help="Network interface to bind to")
-    args = parser.parse_args()
-
     try:
-        IFEN = args.netiface
-        ifen = ni.ifaddresses(IFEN)
-    except Exception:
-        print("[!] Network interface not found")
-        exit(-1)
-
-    DEVICE_ID = ifen[ni.AF_LINK][0]["addr"]
-    IPV4 = ifen[ni.AF_INET][0]["addr"]
-    IPV6 = ifen[ni.AF_INET6][0]["addr"].split("%")[0]
-
-    setup_global_structs(args)
-
-    print("Interface: %s" % IFEN)
-    print("IPv4: %s" % IPV4)
-    print("IPv6: %s" % IPV6)
-    print()
-
-    mdns = register_mdns(args.mdns)
-    print("Starting RSTP server, press Ctrl-C to exit...")
-    try:
+        HOST = "192.168.28.163"
         PORT = 7000
 
-        with AP2Server(("0.0.0.0", PORT), AP2Handler) as httpd:
-            print("serving at port", PORT)
-            httpd.serve_forever()
+        # hapServer = Hap()
+        # hapClient = HapClient()
+        # tlvServer = hapServer.pair_setup_m1_m2()
+        #
+        # serverKey = tlvServer[Tlv8.Tag.PUBLICKEY]
+        # salt = tlvServer[Tlv8.Tag.SALT]
+        # tlvClient = Tlv8.decode(hapClient.pair_setup_m2_m3(Tlv8.encode(tlvServer)))
+        # hapServer.pair_setup_m3_m4(tlvClient[Tlv8.Tag.PUBLICKEY], tlvClient[Tlv8.Tag.PROOF])
+
+
+        monclient = AP2Client(HOST, PORT)
+        #monclient.do_auth_setup()
+        res = monclient.do_pair_setup()
+        # if res.status==200:
+
+
+        # with AP2Client(HOST, PORT) as client:
+        #    print("Connection to client", HOST, ":", PORT)
+        #    client.do_pair_setup()
     except KeyboardInterrupt:
         pass
     finally:
-        print("Shutting down mDNS...")
-        unregister_mdns(*mdns)
+        print ("Done")
