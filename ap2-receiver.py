@@ -53,7 +53,6 @@ FEATURES = 0x8030040780a00
 # FEATURES = 0x30040780a00
 # FEATURES = 0x8030040780a00 | (1 << 27)
 
-
 DEVICE_ID = None
 IPV4 = None
 IPV6 = None
@@ -141,9 +140,9 @@ def setup_global_structs(args):
         "features": "%s,%s" % (hex(FEATURES & 0xffffffff), hex(FEATURES >> 32 & 0xffffffff)),
         "flags": "0x4",
         # "name": "GINO", # random
-        # "model": "GIO", # random
-        # "manufacturer": "Pino", # random
-        # "serialNumber": "01234xX321", # random
+        "model": "GIO", # random
+        "manufacturer": "Pino", # random
+        "serialNumber": "01234xX321", # random
         "protovers": "1.1",
         "acl": "0",
         "rsf": "0x0",
@@ -592,8 +591,8 @@ def register_mdns(receiver_name):
     info = ServiceInfo(
         "_airplay._tcp.local.",
         "%s._airplay._tcp.local." % receiver_name,
-        # addresses=[socket.inet_aton("127.0.0.1")],
-        addresses=addresses,
+        addresses=[socket.inet_aton("127.0.0.1")],
+        # addresses=addresses,
         port=7000,
         properties=mdns_props,
         server="%s.local." % receiver_name,
