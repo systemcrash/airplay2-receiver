@@ -9,9 +9,10 @@ class AlacDecoder:
             self.libalac = ctypes.CDLL("./ap2/alac/libalac.dylib", use_errno=True)
         elif subsys == "Linux":
             self.libalac = ctypes.CDLL("./ap2/alac/libalac.so", use_errno=True)
+        elif subsys == "Windows":
+            self.libalac = ctypes.CDLL("./ap2/alac/libalac.dll", use_errno=True)
         else:
-            self.libalac = ctypes.CDLL("./ap2/alac/libalac64.dll", use_errno=True)
-            #raise OSError("%s is not supported" % subsys)
+            raise OSError("%s is not supported" % subsys)
 
         self.libalac.apple_alac_init.restype = ctypes.c_int
         self.libalac.apple_alac_decode_frame.restype = ctypes.c_int
