@@ -64,6 +64,7 @@ HTTP_CT_OCTET = "application/octet-stream"
 HTTP_CT_PARAM = "text/parameters"
 HTTP_CT_IMAGE = "image/jpeg"
 HTTP_CT_DMAP = "application/x-dmap-tagged"
+ENABLE_PLIST_DUMP = True
 
 
 def setup_global_structs(args):
@@ -173,6 +174,13 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.close_connection = 0
         return r
 
+    def dumpPList(self, body):
+        if ENABLE_PLIST_DUMP:
+            content_type = self.headers["Content-Type"]
+            if content_type == HTTP_CT_BPLIST:
+                plist = readPlistFromString(body)
+                print(plist)
+                
     def send_response(self, code, message=None):
         if message is None:
             if code in self.responses:
@@ -419,6 +427,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 body = self.rfile.read(content_len)
 
                 plist = readPlistFromString(body)
+                self.dumpPList(body)
                 newin = []
                 if "mrSupportedCommandsFromSender" in plist["params"]:
                     for p in plist["params"]["mrSupportedCommandsFromSender"]:

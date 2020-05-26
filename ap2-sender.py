@@ -17,7 +17,7 @@ import netifaces as ni
 from hexdump import hexdump
 from Crypto.Cipher import ChaCha20_Poly1305, AES
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
-from biplist import readPlistFromString, writePlistToString
+from biplist import readPlistFromString, writePlistToString, readPlist
 
 from ap2.pairing import srp
 from ap2.utils import get_volume, set_volume
@@ -109,6 +109,14 @@ class AP2Client():
         self.connection.putheader("User-Agent", self.version_string())
         self.connection.endheaders()
 
+        res = self.connection.getresponse()
+
+        if res.status == 200:
+            data = res.read()
+            hexdump(data)
+            print("----- INFO -----")
+            self.dumpPlist(data)
+            
     def do_auth_setup(self):
         self.connection.putrequest("POST", "/auth-setup", False, False)
         self.connection.putheader("CSeq", 1)
@@ -237,6 +245,10 @@ class AP2Client():
             self.end_headers()
             self.wfile.write(res)
 
+    def dumpPlist(self, plistData):
+        plist = readPlistFromString(plistData)
+        self.pp.pprint(plist)
+
 def get_free_port():
     free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     free_socket.bind(('0.0.0.0', 0))
@@ -263,8 +275,9 @@ if __name__ == "__main__":
 
 
         monclient = AP2Client(HOST, PORT)
-        #monclient.do_auth_setup()
-        res = monclient.do_pair_setup()
+        res = monclient.do_info()
+        monclient.do_auth_setup()
+        
         # if res.status==200:
 
 
