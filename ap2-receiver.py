@@ -19,6 +19,7 @@ from Crypto.Cipher import ChaCha20_Poly1305, AES
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
 from biplist import readPlistFromString, writePlistToString
 
+from ap2.playfair import PlayFair
 from ap2.utils import get_volume, set_volume
 from ap2.pairing.hap import Hap, HAPSocket
 from ap2.connections.event import Event
@@ -474,12 +475,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         content_len = int(self.headers["Content-Length"])
         if content_len > 0:
             body = self.rfile.read(content_len)
+            pf = PlayFair()
+            pf_info = PlayFair.fairplay_s()
+            response = pf.fairplay_setup(pf_info, body)
             hexdump(body)
 
         self.send_response(200)
+        self.send_header("Content-Length", len(response))
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
+        self.wfile.write(response)
 
     def handle_pair_setup(self):
         content_len = int(self.headers["Content-Length"])
@@ -591,8 +597,8 @@ def register_mdns(receiver_name):
     info = ServiceInfo(
         "_airplay._tcp.local.",
         "%s._airplay._tcp.local." % receiver_name,
-        addresses=[socket.inet_aton("127.0.0.1")],
-        # addresses=addresses,
+        # addresses=[socket.inet_aton("127.0.0.1")],
+        addresses=addresses,
         port=7000,
         properties=mdns_props,
         server="%s.local." % receiver_name,

@@ -204,14 +204,13 @@ class HapClient:
 
     # Receive M4
     def pair_setup_m4(self, body):
-        self.ctx.set_client_public(client_public)
-        assert self.ctx.verify(client_proof)
+        tvl_resp = Tlv8.decode(body)
 
-        self.accessory_shared_key = self.ctx.session_key
-        server_proof = self.ctx.proof
+        server_proof = tvl_resp[Tlv8.Tag.PROOF]
+        assert self.ctx.verify(server_proof)
+        self.shared_key = self.ctx.session_key
 
-        return [Tlv8.Tag.STATE, PairingState.M4,
-                Tlv8.Tag.PROOF, server_proof]
+        return
 
     def pair_setup_m5_m6(self, encrypted):
         print("-----\tPair-Setup [3/5]")
@@ -502,12 +501,22 @@ class HAPSocket:
     LENGTH_LENGTH = 2
 
     CIPHER_SALT = b"Control-Salt"
-    OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"
-    IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
 
-    def __init__(self, sock, shared_key):
+    class SocketType:
+        # Use this if the socket if a connecttion to an HKP accessory
+        ACCESSORY = 0
+        # Use this if an accessory is connected
+        DEVICE = 1
+
+    def __init__(self, sock, shared_key, socket_type = SocketType.DEVICE):
         """Initialise from the given socket."""
         self.socket = sock
+        if socket_type == self.SocketType.DEVICE:
+            self.OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"
+            self.IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
+        else:
+            self.OUT_CIPHER_INFO = b"Control-Write-Encryption-Key"
+            self.IN_CIPHER_INFO = b"Control-Read-Encryption-Key"
 
         self.shared_key = shared_key
         self.out_count = 0

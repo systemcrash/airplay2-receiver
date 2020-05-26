@@ -78,19 +78,17 @@ class RTSPConnection2(RTSPConnection):
 
 class AP2Client():
     pp = pprint.PrettyPrinter()
-    #connection = None
 
     def __init__(self, host, port):
         self.connection = RTSPConnection2(host, port)
 
+    def upgrade_to_encrypted(self, shared_key):
+        hap_socket = HAPSocket(self.connection.sock, shared_key, HAPSocket.SocketType.ACCESSORY)
+        self.connection.sock = hap_socket
+        # self.connection.fp = self.connection.sock.makefile('rb')
 
-    def parse_request(self):
-        self.raw_requestline = self.raw_requestline.replace(b"RTSP/1.0", b"HTTP/1.1")
-
-        r = http.server.BaseHTTPRequestHandler.parse_request(self)
-        self.protocol_version = "RTSP/1.0"
-        self.close_connection = 0
-        return r
+        self.is_encrypted = True
+        print("----- ENCRYPTED CHANNEL -----")
 
     def send_response(self, code, message=None):
         if message is None:
@@ -105,275 +103,14 @@ class AP2Client():
     def version_string(self):
         return "AirPlay/%s" % CLIENT_VERSION
 
-    def do_GET(self):
-        print(self.headers)
-        if self.path == "/info":
-            print("GET /info")
-            self.handle_info()
-        else:
-            print("GET %s Not implemented!" % self.path)
-            self.send_error(404)
-
-    def do_SETUP(self):
-        dacp_id = self.headers.get("DACP-ID")
-        active_remote = self.headers.get("Active-Remote")
-        ua = self.headers.get("User-Agent")
-        print("SETUP %s" % self.path)
-        print(self.headers)
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                self.pp.pprint(plist)
-                if "streams" not in plist:
-                    print("Sending EVENT:")
-                    event_port, self.event_proc = Event.spawn()
-                    sonos_one_setup["eventPort"] = event_port
-                    print("[+] eventPort=%d" % event_port)
-
-                    self.pp.pprint(sonos_one_setup)
-                    res = writePlistToString(sonos_one_setup)
-                    self.send_response(200)
-                    self.send_header("Content-Length", len(res))
-                    self.send_header("Content-Type", HTTP_CT_BPLIST)
-                    self.send_header("Server", self.version_string())
-                    self.send_header("CSeq", self.headers["CSeq"])
-                    self.end_headers()
-                    self.wfile.write(res)
-                else:
-                    print("Sending CONTROL/DATA:")
-
-                    stream = Stream(plist["streams"][0])
-                    self.server.streams.append(stream)
-                    sonos_one_setup_data["streams"][0]["controlPort"] = stream.control_port
-                    sonos_one_setup_data["streams"][0]["dataPort"] = stream.data_port
-
-                    print("[+] controlPort=%d dataPort=%d" % (stream.control_port, stream.data_port))
-                    if stream.type == Stream.BUFFERED:
-                        sonos_one_setup_data["streams"][0]["type"] = stream.type
-                        sonos_one_setup_data["streams"][0]["audioBufferSize"] = 8388608
-
-                    self.pp.pprint(sonos_one_setup_data)
-                    res = writePlistToString(sonos_one_setup_data)
-
-                    self.send_response(200)
-                    self.send_header("Content-Length", len(res))
-                    self.send_header("Content-Type", HTTP_CT_BPLIST)
-                    self.send_header("Server", self.version_string())
-                    self.send_header("CSeq", self.headers["CSeq"])
-                    self.end_headers()
-                    self.wfile.write(res)
-                return
-        self.send_error(404)
-
-    def do_GET_PARAMETER(self):
-        print("GET_PARAMETER %s" % self.path)
-        print(self.headers)
-        params_res = {}
-        content_len = int(self.headers["Content-Length"])
-        if content_len > 0:
-            body = self.rfile.read(content_len)
-
-            params = body.splitlines()
-            for p in params:
-                if p == b"volume":
-                    print("GET_PARAMETER: %s" % p)
-                    params_res[p] = str(get_volume()).encode()
-                else:
-                    print("Ops GET_PARAMETER: %s" % p)
-
-        res = b"\r\n".join(b"%s: %s" % (k, v) for k, v in params_res.items()) + b"\r\n"
-        self.send_response(200)
-        self.send_header("Content-Length", len(res))
-        self.send_header("Content-Type", HTTP_CT_PARAM)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-        self.wfile.write(res)
-
-    def do_SET_PARAMETER(self):
-        print("SET_PARAMETER %s" % self.path)
-        print(self.headers)
-        params_res = {}
-        content_type = self.headers["Content-Type"]
-        content_len = int(self.headers["Content-Length"])
-        if content_type == HTTP_CT_PARAM:
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                params = body.splitlines()
-                for p in params:
-                    pp = p.split(b":")
-                    if pp[0] == b"volume":
-                        print("SET_PARAMETER: %s => %s" % (pp[0], pp[1]))
-                        set_volume(float(pp[1]))
-                    elif pp[0] == b"progress":
-                        print("SET_PARAMETER: %s => %s" % (pp[0], pp[1]))
-                    else:
-                        print("Ops SET_PARAMETER: %s" % p)
-        elif content_type == HTTP_CT_IMAGE:
-            if content_len > 0:
-                fname = None
-                with tempfile.NamedTemporaryFile(prefix="artwork", dir=".", delete=False) as f:
-                    f.write(self.rfile.read(content_len))
-                    fname = f.name
-                print("Artwork saved to %s" % fname)
-        elif content_type == HTTP_CT_DMAP:
-            if content_len > 0:
-                self.rfile.read(content_len)
-                print("Now plaing DAAP info. (need a daap parser here)")
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def do_RECORD(self):
-        print("RECORD %s" % self.path)
-        print(self.headers)
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def do_SETRATEANCHORTIME(self):
-        print("SETRATEANCHORTIME %s" % self.path)
-        print(self.headers)
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def do_TEARDOWN(self):
-        print("TEARDOWN %s" % self.path)
-        print(self.headers)
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                if "streams" in plist:
-                    stream_id = plist["streams"][0]["streamID"]
-                    stream = self.server.streams[stream_id]
-                    stream.teardown()
-                    del self.server.streams[stream_id]
-                self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def do_SETPEERS(self):
-        print("SETPEERS %s" % self.path)
-        print(self.headers)
-        content_len = int(self.headers["Content-Length"])
-        if content_len > 0:
-            body = self.rfile.read(content_len)
-
-            plist = readPlistFromString(body)
-            self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def do_FLUSH(self):
-        print("FLUSH %s" % self.path)
-        print(self.headers)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def handle_command(self):
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                newin = []
-                if "mrSupportedCommandsFromSender" in plist["params"]:
-                    for p in plist["params"]["mrSupportedCommandsFromSender"]:
-                        iplist = readPlistFromString(p)
-                        newin.append(iplist)
-                    plist["params"]["mrSupportedCommandsFromSender"] = newin
-                if "params" in plist["params"] and "kMRMediaRemoteNowPlayingInfoArtworkData" in plist["params"][
-                    "params"]:
-                    plist["params"]["params"]["kMRMediaRemoteNowPlayingInfoArtworkData"] = "<redacted ..too long>"
-                self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def handle_feedback(self):
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def handle_audiomode(self):
-        if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-            content_len = int(self.headers["Content-Length"])
-            if content_len > 0:
-                body = self.rfile.read(content_len)
-
-                plist = readPlistFromString(body)
-                self.pp.pprint(plist)
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def handle_auth_setup(self):
-        content_len = int(self.headers["Content-Length"])
-        if content_len > 0:
-            body = self.rfile.read(content_len)
-            hexdump(body)
-
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-
-    def handle_fp_setup(self):
-        content_len = int(self.headers["Content-Length"])
-        if content_len > 0:
-            body = self.rfile.read(content_len)
-            hexdump(body)
-
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
+    def do_info(self):
+        self.connection.putrequest("GET", "/info", False, False)
+        self.connection.putheader("CSeq", 1)
+        self.connection.putheader("User-Agent", self.version_string())
+        self.connection.endheaders()
 
     def do_auth_setup(self):
         self.connection.putrequest("POST", "/auth-setup", False, False)
-        #self.connection.putheader("Content-Length")
         self.connection.putheader("CSeq", 1)
         self.connection.putheader("Content-Length", 33)
         self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
@@ -389,6 +126,7 @@ class AP2Client():
         if res.status == 200:
             data = res.read()
             hexdump(data)
+
 
     def do_pair_setup(self):
         if not self.connection.hap:
@@ -424,9 +162,16 @@ class AP2Client():
 
             res = self.connection.getresponse()
 
-            #if res.status == 200:
-            data = res.read()
-            hexdump(data)
+            if res.status == 200:
+                data = res.read()
+                hexdump(data)
+                self.connection.hap.pair_setup_m4(data)
+                print("Shared Key")
+                hexdump(self.connection.hap.shared_key)
+                self.upgrade_to_encrypted(self.connection.hap.shared_key)
+                self.do_info()
+                res = self.connection.getresponse()
+
         return res
 
     def handle_pair_verify(self):
@@ -492,17 +237,6 @@ class AP2Client():
             self.end_headers()
             self.wfile.write(res)
 
-    def upgrade_to_encrypted(self, shared_key):
-        self.request = self.server.upgrade_to_encrypted(
-            self.client_address,
-            shared_key)
-        self.connection = self.request
-        self.rfile = self.connection.makefile('rb', self.rbufsize)
-        self.wfile = self.connection.makefile('wb')
-        self.is_encrypted = True
-        print("----- ENCRYPTED CHANNEL -----")
-
-
 def get_free_port():
     free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     free_socket.bind(('0.0.0.0', 0))
@@ -510,29 +244,6 @@ def get_free_port():
     port = free_socket.getsockname()[1]
     free_socket.close()
     return port
-
-
-class AP2Server(socketserver.TCPServer):
-
-    def __init__(self, addr_port, handler):
-        super().__init__(addr_port, handler)
-        self.connections = {}
-        self.hap = None
-        self.enc_layer = False
-        self.streams = []
-
-    # Override
-    def get_request(self):
-        client_socket, client_addr = super().get_request()
-        print("Got connection with %s:%d" % client_addr)
-        self.connections[client_addr] = client_socket
-        return (client_socket, client_addr)
-
-    def upgrade_to_encrypted(self, client_address, shared_key):
-        client_socket = self.connections[client_address]
-        hap_socket = HAPSocket(client_socket, shared_key)
-        self.connections[client_address] = hap_socket
-        return hap_socket
 
 
 if __name__ == "__main__":

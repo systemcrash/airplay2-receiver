@@ -228,6 +228,7 @@ class SrpClient(Srp):
         return to_bytes(self.M1)
 
     def verify(self, M2_server):
+        self.M2 = H(self.A, self.M1, self.K)
         if self.M2 != from_bytes(M2_server):
             raise Exception("Authentication failed - invalid proof")
         return True
