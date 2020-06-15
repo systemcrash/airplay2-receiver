@@ -3,6 +3,7 @@ import socket
 import hashlib
 import threading
 
+from Crypto.PublicKey import RSA
 from hexdump import hexdump
 
 import hkdf
@@ -10,8 +11,20 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 from cryptography.hazmat.primitives import serialization
 import nacl.signing
 from Crypto.Cipher import ChaCha20_Poly1305
+from Crypto.Signature import PKCS1_v1_5 
+from Crypto.Hash import SHA1
 
 from . import srp
+from .srp import to_bytes
+from ..rtsp_client import RTSPConnection
+
+SERVER_VERSION = "366.0"
+HTTP_CT_BPLIST = "application/x-apple-binary-plist"
+HTTP_CT_OCTET = "application/octet-stream"
+HTTP_CT_PARAM = "text/parameters"
+HTTP_CT_IMAGE = "image/jpeg"
+HTTP_CT_DMAP = "application/x-dmap-tagged"
+ENABLE_PLIST_DUMP = True
 
 
 class PairingMethod:
@@ -104,19 +117,29 @@ class Tlv8:
 
 
 class HapClient:
-    def __init__(self):
-        self.transient = False
-        self.encrypted = False
-        self.pair_setup_steps_n = 5
-        self.pair_setup_state = PairingState.M1
-        self.pair_setup_flags = PairingFlags.TRANSIENT
-
+    def __init__(self, ap2sender_callback):
+        self.ap2sender_callback = ap2sender_callback
         self.server_pk = None
+        self.pairing_status = self.PairingStatus()
+
+    class PairingStatus():
+        def __init__(self):
+            self.global_status = None
+            self.method = None
+            self.state = None
+            self.step = None
+            self.flags = None
+            self.error = None
+            self.encrypted = False
+
+        @property
+        def pairing_step(self):
+            return self.step
 
     def request(self, req):
         req = Tlv8.decode(req)
 
-        if req[Tlv8.Tag.METHOD] == PairingMethod.PAIR_SETUP_AUTH:
+        if req[Tlv8.Tag.METHOD] == PairingMethod.PAIR_SETUP:
             res = self.pair_setup(req)
         return Tlv8.encode(res)
 
@@ -160,18 +183,45 @@ class HapClient:
         srp.a = a
         srp.A = A
 
-    # Initialise M1 setup
-    def pair_setup_m1(self):
+    def set_state_from_response(self, response):
+        decoded_tlvs = Tlv8.decode(response)
+        
+        self.pairing_status.state = decoded_tlvs[Tlv8.Tag.STATE]
+        if Tlv8.Tag.ERROR in decoded_tlvs:
+            self.pairing_status.error ="Some error occured..."
+        return 
 
-        self.pair_setup_state = PairingState.M1
-        self.pair_setup_flags = PairingFlags.TRANSIENT
-        print("-----\tPair-Setup [1/%d]" % self.pair_setup_steps_n)
-
-        req = [Tlv8.Tag.METHOD, PairingMethod.PAIR_SETUP,
-               Tlv8.Tag.STATE, self.pair_setup_state,
-               Tlv8.Tag.FLAGS, self.pair_setup_flags]
-
+    def list_pairings(self):
+        req = [Tlv8.Tag.STATE, PairingState.M1,
+                Tlv8.Tag.METHOD, PairingMethod.LIST_PAIRINGS]
         return Tlv8.encode(req)
+        
+    def do_pairing(self):
+        self.pairing_status.global_status = "PENDING"
+        self.pairing_status.method = PairingMethod.PAIR_SETUP_AUTH
+        self.pairing_status.flags = PairingFlags.TRANSIENT
+        self.pairing_status.state = PairingState.M1
+        self.pairing_status.error = "None"
+
+        response = self.pair_setup_m1_m2()
+        self.set_state_from_response(response)
+
+        if self.pairing_status.state == PairingState.M2:
+            response = self.pair_setup_m2_m3(response)
+            self.set_state_from_response(response)
+
+        if self.pairing_status.state == PairingState.M4:
+            response = self.pair_setup_m4(response)
+
+        return
+
+    # Initialise M1 setup
+    def pair_setup_m1_m2(self):
+        req = [Tlv8.Tag.METHOD, self.pairing_status.method,
+               Tlv8.Tag.STATE, self.pairing_status.state,
+               Tlv8.Tag.FLAGS, self.pairing_status.flags]
+        # Sender will send http request, and then go on with do_pairing
+        return self.ap2sender_callback(Tlv8.encode(req), self.pairing_status)
 
     def pair_verify(self, req):
         req = Tlv8.decode(req)
@@ -195,22 +245,55 @@ class HapClient:
         self.ctx = srp.SrpClient(b"Pair-Setup", b"3939", self.salt)
         self.ctx.set_server_public(self.server_pk)
 
-        res = [Tlv8.Tag.STATE, PairingState.M3,
+        req = [Tlv8.Tag.STATE, PairingState.M3,
                Tlv8.Tag.PUBLICKEY, self.ctx.public_key,
                Tlv8.Tag.PROOF, self.ctx.proof]
 
-        self.encrypted = True
-        return Tlv8.encode(res)
+        # Sender will send http request, and then go on with do_pairing
+        self.pairing_status.state = PairingState.M3
+        return self.ap2sender_callback(Tlv8.encode(req), self.pairing_status)
 
     # Receive M4
     def pair_setup_m4(self, body):
         tvl_resp = Tlv8.decode(body)
 
         server_proof = tvl_resp[Tlv8.Tag.PROOF]
+        encrypted = tvl_resp[Tlv8.Tag.ENCRYPTEDDATA]
+
+        prk = hkdf.hkdf_extract(b"Pair-Setup-Encrypt-Salt", self.ctx.session_key)
+        session_key = hkdf.hkdf_expand(prk, b"Pair-Setup-Encrypt-Info", 32)
+        c = ChaCha20_Poly1305.new(key=session_key, nonce=b"PS-Msg04")
+
+        enc_tlv = encrypted[:-16]
+        tag = encrypted[-16:]
+
+        dec_tlv = c.decrypt_and_verify(enc_tlv, tag)
+        tlv_decoded = Tlv8.decode(dec_tlv)
+        cert = tlv_decoded[Tlv8.Tag.CERTIFICATE]
+        sig = tlv_decoded[Tlv8.Tag.SIGNATURE]
+
+        prk = hkdf.hkdf_extract(b"MFi-Pair-Setup-Salt", self.ctx.session_key)
+        message_to_check = hkdf.hkdf_expand(prk, b"MFi-Pair-Setup-Info", 32)
+        message_to_check_digest = SHA1.new()
+        message_to_check_digest.update(message_to_check)
+
+        rsapubfile = open("./sonos-pubkey.pem","r")
+        rsapubkey = rsapubfile.read()
+        rsakey = RSA.importKey(rsapubkey)
+        signer = PKCS1_v1_5.new(rsakey)
+
+        if signer.verify(message_to_check_digest, sig):
+            print("MFI Signature OK")
+        else:
+            print("MFI Signature KO")
+
         assert self.ctx.verify(server_proof)
         self.shared_key = self.ctx.session_key
+        self.pairing_status.encrypted = True
 
-        return
+        # Sender will send http request, and then go on with do_pairing
+        self.pairing_status.global_status = "PAIRED"
+        return self.ap2sender_callback(None, self.pairing_status)
 
     def pair_setup_m5_m6(self, encrypted):
         print("-----\tPair-Setup [3/5]")
@@ -332,7 +415,8 @@ class Hap:
         req = Tlv8.decode(req)
 
         if req[Tlv8.Tag.STATE] == PairingState.M1 and \
-                req[Tlv8.Tag.METHOD] == PairingMethod.PAIR_SETUP and \
+                (req[Tlv8.Tag.METHOD] == PairingMethod.PAIR_SETUP or
+                req[Tlv8.Tag.METHOD] == PairingMethod.PAIR_SETUP_AUTH) and \
                 Tlv8.Tag.FLAGS in req and \
                 req[Tlv8.Tag.FLAGS] == PairingFlags.TRANSIENT:
             self.transient = True
@@ -378,8 +462,39 @@ class Hap:
         self.accessory_shared_key = self.ctx.session_key
         server_proof = self.ctx.proof
 
+        encryption_type = b'\x01'
+        body = encryption_type + client_public
+        
+        # If method is PAIR_SETUP_AUTH, then we must provide the proof
+        connection = RTSPConnection("192.168.28.163", 7000)
+        connection.putrequest("POST", "/auth-setup", False, False)
+        connection.putheader("CSeq", 1)
+        connection.putheader("User-Agent", self.version_string())
+        connection.putheader("Content-Length", 33)
+        connection.putheader("Content-Type", HTTP_CT_BPLIST)
+        connection.putheader("User-Agent", self.version_string())
+        connection.putheader("X-Apple-HKP", 4)
+        connection.endheaders()
+        connection.send(body)
+
+        res = connection.getresponse()
+
+        if res.status == 200:
+            data = res.read()
+
+            cert_length = struct.unpack(">I", data[32:36])[0]
+            cert = data[36:36 + cert_length]
+            sig_length = struct.unpack(">I", data[36 + cert_length:40 + cert_length])[0]
+            sig = data[40 + cert_length:]
+
+            dec_tlv = Tlv8.encode([Tlv8.Tag.CERTIFICATE, cert,
+                                   Tlv8.Tag.SIGNATURE, sig])
+
+            c = ChaCha20_Poly1305.new(key=self.ctx.session_key, nonce=b"PS-Msg04")
+            enc_tlv, tag = c.encrypt_and_digest(dec_tlv)
+
         return [Tlv8.Tag.STATE, PairingState.M4,
-                Tlv8.Tag.PROOF, server_proof]
+                Tlv8.Tag.PROOF, server_proof, Tlv8.Tag.ENCRYPTEDDATA, enc_tlv]
 
     def pair_setup_m5_m6(self, encrypted):
         print("-----\tPair-Setup [3/5]")

@@ -14,6 +14,8 @@ import http.client
 import socketserver
 
 import netifaces as ni
+from Crypto.PublicKey import RSA
+from Crypto.Util import Counter
 from hexdump import hexdump
 from Crypto.Cipher import ChaCha20_Poly1305, AES
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
@@ -21,10 +23,17 @@ from biplist import readPlistFromString, writePlistToString, readPlist
 
 from ap2.pairing import srp
 from ap2.utils import get_volume, set_volume
-from ap2.pairing.hap import HAPSocket, HapClient, Hap, Tlv8
+from ap2.pairing.hap import HAPSocket, HapClient, Hap, Tlv8, PairingMethod
 from ap2.connections.event import Event
 from ap2.connections.stream import Stream
 from ap2.rtsp_client import RTSPConnection
+from cryptography.hazmat.primitives.asymmetric import x25519
+from cryptography.hazmat.primitives import serialization
+from ap2.pairing import srp
+from Crypto.Cipher import AES
+from Crypto.Signature import PKCS1_v1_5 
+from Crypto.Hash import SHA1
+from OpenSSL import crypto
 
 DEVICE_ID = None
 IPV4 = None
@@ -36,7 +45,6 @@ HTTP_CT_OCTET = "application/octet-stream"
 HTTP_CT_PARAM = "text/parameters"
 HTTP_CT_IMAGE = "image/jpeg"
 HTTP_CT_DMAP = "application/x-dmap-tagged"
-
 
 def setup_global_structs(args):
     global sonos_one_info
@@ -68,19 +76,12 @@ def setup_global_structs(args):
         ]
     }
 
-class RTSPConnection2(RTSPConnection):
-    def parse_request(self):
-        print ("toto")
-
-    def __init__(self, host, port):
-        super(RTSPConnection2, self).__init__(host, port)
-        self.hap = None
-
 class AP2Client():
     pp = pprint.PrettyPrinter()
 
     def __init__(self, host, port):
-        self.connection = RTSPConnection2(host, port)
+        self.connection = RTSPConnection(host, port)
+        self.connection.hap = None
 
     def upgrade_to_encrypted(self, shared_key):
         hap_socket = HAPSocket(self.connection.sock, shared_key, HAPSocket.SocketType.ACCESSORY)
@@ -116,7 +117,7 @@ class AP2Client():
             hexdump(data)
             print("----- INFO -----")
             self.dumpPlist(data)
-            
+
     def do_auth_setup(self):
         self.connection.putrequest("POST", "/auth-setup", False, False)
         self.connection.putheader("CSeq", 1)
@@ -126,23 +127,79 @@ class AP2Client():
         self.connection.putheader("X-Apple-HKP", 4)
         self.connection.endheaders()
 
-        body = b'\x01\x4E\xEA\xD0\x4E\xA9\x2E\x47\x69\xD2\xE1\xFB\xD0\x96\x81\xD5\x94\xA8\xEF\x18\x45\x4A\x24\xAE\xAF\xB3\x14\x97\x0D\xA0\xB5\xA3\x49'
+        encryption_type = b'\x01'
+        accessory_curve = x25519.X25519PrivateKey.generate()
+        client_curve25519_pk = accessory_curve.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw
+        )
+
+        body = encryption_type + client_curve25519_pk
         self.connection.send(body)
 
         res = self.connection.getresponse()
 
         if res.status == 200:
             data = res.read()
-            hexdump(data)
+            server_curve25519_pk = data[0:32]
+            accessory_shared_key = accessory_curve.exchange(
+                x25519.X25519PublicKey.from_public_bytes(server_curve25519_pk))
 
+            cert_length = struct.unpack(">I", data[32:36])[0]
+            cert = data[36:36+cert_length]
+            sig_length = struct.unpack(">I", data[36+cert_length:40+cert_length])[0]
+            sig = data[40+cert_length:]
 
-    def do_pair_setup(self):
+            message_to_check_digest = SHA1.new()
+            message_to_check_digest.update(server_curve25519_pk)
+            message_to_check_digest.update(client_curve25519_pk)
+
+            digest = SHA1.new()
+            digest.update(b"AES-KEY")
+            digest.update(accessory_shared_key)
+            aes_master_key = digest.digest()[0:16]
+
+            digest = SHA1.new()
+            digest.update(b"AES-IV")
+            digest.update(accessory_shared_key)
+            aes_master_iv = digest.digest()[0:16]
+
+            ctr = Counter.new(nbits=128, initial_value=srp.from_bytes(aes_master_iv, False))
+            print(hexdump(aes_master_iv))
+            ctr.update()
+            aes = AES.new(aes_master_key, AES.MODE_CTR, counter=ctr)
+            sig = aes.decrypt(sig)
+
+            pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, cert)
+            certs = get_certificates(pkcs7)
+            
+            for cert in certs:
+                rsapubkey = crypto.dump_publickey(crypto.FILETYPE_ASN1, cert.get_pubkey())
+
+            rsakey = RSA.importKey(rsapubkey)
+            signer = PKCS1_v1_5.new(rsakey)
+
+            if signer.verify(message_to_check_digest, sig):
+                return True
+
+    def do_pairing(self):
         if not self.connection.hap:
-            self.connection.hap = HapClient()
-        req = self.connection.hap.pair_setup_m1()
+            self.connection.hap = HapClient(self.handle_pairing_callback)
 
-        self.connection.putrequest("POST", "/pair-setup", False, False)
-        #self.connection.putheader("Content-Length")
+        self.connection.hap.do_pairing()
+
+    def handle_pairing_callback(self, req, pairing_status):
+        if pairing_status.encrypted:
+            self.upgrade_to_encrypted(self.connection.hap.shared_key)
+
+        if pairing_status.global_status == "PAIRED":
+            return
+
+        if pairing_status.method == PairingMethod.PAIR_SETUP \
+                or pairing_status.method == PairingMethod.PAIR_SETUP_AUTH:
+            path = "/pair-setup"
+
+        self.connection.putrequest("POST", path, False, False)
         self.connection.putheader("CSeq", 2)
         self.connection.putheader("Content-Length", len(req))
         self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
@@ -157,93 +214,31 @@ class AP2Client():
         if res.status == 200:
             data = res.read()
             hexdump(data)
-            req = self.connection.hap.pair_setup_m2_m3(data)
-            self.connection.putrequest("POST", "/pair-setup", False, False)
-            self.connection.putheader("CSeq", 3)
-            self.connection.putheader("Content-Length", len(req))
-            self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
-            self.connection.putheader("User-Agent", self.version_string())
-            self.connection.putheader("X-Apple-HKP", 4)
 
-            self.connection.endheaders()
-            self.connection.send(req)
-
-            res = self.connection.getresponse()
-
-            if res.status == 200:
-                data = res.read()
-                hexdump(data)
-                self.connection.hap.pair_setup_m4(data)
-                print("Shared Key")
-                hexdump(self.connection.hap.shared_key)
-                self.upgrade_to_encrypted(self.connection.hap.shared_key)
-                self.do_info()
-                res = self.connection.getresponse()
+            return data
 
         return res
 
-    def handle_pair_verify(self):
-        content_len = int(self.headers["Content-Length"])
+    def list_pairings(self):
+        if not self.connection or (self.connection and not self.connection.hap):
+            print("Previous pairing is required")
+            return
 
-        body = self.rfile.read(content_len)
+        req = self.connection.hap.list_pairings()
+        self.connection.putrequest("POST", "/pair-setup", False, False)
+        self.connection.putheader("Content-Length", len(req))
+        self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
+        self.connection.putheader("CSeq", 1)
+        self.connection.putheader("User-Agent", self.version_string())
+        self.connection.putheader("X-Apple-HKP", 4)
+        self.connection.endheaders()
+        self.connection.send(req)
+        res = self.connection.getresponse()
+        if res.status == 200:
+            data = res.read()
+            hexdump(data)
 
-        if not self.server.hap:
-            self.server.hap = Hap()
-        res = self.server.hap.pair_verify(body)
-
-        self.send_response(200)
-        self.send_header("Content-Length", len(res))
-        self.send_header("Content-Type", HTTP_CT_OCTET)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
-        self.wfile.write(res)
-
-        if self.server.hap.encrypted:
-            hexdump(self.server.hap.accessory_shared_key)
-            self.upgrade_to_encrypted(self.server.hap.accessory_shared_key)
-
-    def handle_info(self):
-        if "Content-Type" in self.headers:
-            if self.headers["Content-Type"] == HTTP_CT_BPLIST:
-                content_len = int(self.headers["Content-Length"])
-                if content_len > 0:
-                    body = self.rfile.read(content_len)
-
-                    plist = readPlistFromString(body)
-                    self.pp.pprint(plist)
-                    if "qualifier" in plist and "txtAirPlay" in plist["qualifier"]:
-                        print("Sending:")
-                        self.pp.pprint(sonos_one_info)
-                        res = writePlistToString(sonos_one_info)
-
-                        self.send_response(200)
-                        self.send_header("Content-Length", len(res))
-                        self.send_header("Content-Type", HTTP_CT_BPLIST)
-                        self.send_header("Server", self.version_string())
-                        self.send_header("CSeq", self.headers["CSeq"])
-                        self.end_headers()
-                        self.wfile.write(res)
-                    else:
-                        print("No txtAirPlay")
-                        self.send_error(404)
-                        return
-                else:
-                    print("No content")
-                    self.send_error(404)
-                    return
-            else:
-                print("Content-Type: %s | Not implemented" % self.headers["Content-Type"])
-                self.send_error(404)
-        else:
-            res = writePlistToString(second_stage_info)
-            self.send_response(200)
-            self.send_header("Content-Length", len(res))
-            self.send_header("Content-Type", HTTP_CT_BPLIST)
-            self.send_header("Server", self.version_string())
-            self.send_header("CSeq", self.headers["CSeq"])
-            self.end_headers()
-            self.wfile.write(res)
+            return data
 
     def dumpPlist(self, plistData):
         plist = readPlistFromString(plistData)
@@ -257,6 +252,37 @@ def get_free_port():
     free_socket.close()
     return port
 
+def get_certificates(self):
+    from OpenSSL.crypto import _lib, _ffi, X509
+    """
+    https://github.com/pyca/pyopenssl/pull/367/files#r67300900
+
+    Returns all certificates for the PKCS7 structure, if present. Only
+    objects of type ``signedData`` or ``signedAndEnvelopedData`` can embed
+    certificates.
+
+    :return: The certificates in the PKCS7, or :const:`None` if
+        there are none.
+    :rtype: :class:`tuple` of :class:`X509` or :const:`None`
+    """
+    certs = _ffi.NULL
+    if self.type_is_signed():
+        certs = self._pkcs7.d.sign.cert
+    elif self.type_is_signedAndEnveloped():
+        certs = self._pkcs7.d.signed_and_enveloped.cert
+
+    pycerts = []
+    for i in range(_lib.sk_X509_num(certs)):
+        pycert = X509()
+        # pycert._x509 = _lib.sk_X509_value(certs, i)
+        # According to comment from @ Jari Turkia
+        # to prevent segfaults use '_lib.X509_dup('
+        pycert._x509 = _lib.X509_dup(_lib.sk_X509_value(certs, i))
+        pycerts.append(pycert)
+
+    if not pycerts:
+        return None
+    return tuple(pycerts)
 
 if __name__ == "__main__":
 
@@ -264,26 +290,15 @@ if __name__ == "__main__":
         HOST = "192.168.28.163"
         PORT = 7000
 
-        # hapServer = Hap()
-        # hapClient = HapClient()
-        # tlvServer = hapServer.pair_setup_m1_m2()
-        #
-        # serverKey = tlvServer[Tlv8.Tag.PUBLICKEY]
-        # salt = tlvServer[Tlv8.Tag.SALT]
-        # tlvClient = Tlv8.decode(hapClient.pair_setup_m2_m3(Tlv8.encode(tlvServer)))
-        # hapServer.pair_setup_m3_m4(tlvClient[Tlv8.Tag.PUBLICKEY], tlvClient[Tlv8.Tag.PROOF])
-
-
         monclient = AP2Client(HOST, PORT)
-        res = monclient.do_info()
-        monclient.do_auth_setup()
+        res = monclient.do_pairing()
+        monclient.list_pairings()
         
         # if res.status==200:
 
-
         # with AP2Client(HOST, PORT) as client:
-        #    print("Connection to client", HOST, ":", PORT)
-        #    client.do_pair_setup()
+        #     print("Connection to client", HOST, ":", PORT)
+        #     client.do_pair_setup()
     except KeyboardInterrupt:
         pass
     finally:

@@ -20,6 +20,7 @@ from zeroconf import IPVersion, ServiceInfo, Zeroconf
 from biplist import readPlistFromString, writePlistToString
 
 from ap2.playfair import PlayFair
+from ap2.rtsp_client import RTSPConnection
 from ap2.utils import get_volume, set_volume
 from ap2.pairing.hap import Hap, HAPSocket
 from ap2.connections.event import Event
@@ -53,6 +54,10 @@ FEATURES = 0x8030040780a00
 # No supported authentication types.
 # FEATURES = 0x30040780a00
 # FEATURES = 0x8030040780a00 | (1 << 27)
+# Zarb ça marche sans enc... à checker
+FEATURES = 0x8030044780A00
+
+FEATURES = 0x48780A00
 
 DEVICE_ID = None
 IPV4 = None
@@ -411,7 +416,16 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
+        
+    def do_OPTIONS(self):
+        print("OPTIONS %s" % self.path)
 
+        self.send_response(200)
+        self.send_header("Server", self.version_string())
+        self.send_header("CSeq", self.headers["CSeq"])
+        self.send_header("Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, FLUSHBUFFERED, TEARDOWN, OPTIONS, POST, GET, PUT") 
+        self.end_headers()
+        
     def do_FLUSH(self):
         print("FLUSH %s" % self.path)
         print(self.headers)
@@ -473,12 +487,31 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         content_len = int(self.headers["Content-Length"])
         if content_len > 0:
             body = self.rfile.read(content_len)
-            hexdump(body)
+            encryption_type = body[0]
+            client_curve25519PK = body[1:33]
+            
+        connection = RTSPConnection("192.168.28.163", 7000)
+        connection.putrequest("POST", "/auth-setup", False, False)
+        connection.putheader("CSeq", 1)
+        connection.putheader("User-Agent", self.version_string())
+        connection.putheader("Content-Length", 33)
+        connection.putheader("Content-Type", HTTP_CT_BPLIST)
+        connection.putheader("User-Agent", self.version_string())
+        connection.putheader("X-Apple-HKP", 4)
+        connection.endheaders()
+        connection.send(body)
 
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
+        res = connection.getresponse()
+
+        if res.status == 200:
+            data = res.read()
+
+            self.send_response(200)
+            self.send_header("Server", self.version_string())
+            self.send_header("CSeq", self.headers["CSeq"])
+            self.send_header("Content-Length", len(data))
+            self.send_header("Content-Type", HTTP_CT_BPLIST)
+            self.end_headers()
 
     def handle_fp_setup(self):
         content_len = int(self.headers["Content-Length"])
