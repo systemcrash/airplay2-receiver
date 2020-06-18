@@ -105,10 +105,16 @@ class AP2Client():
         return "AirPlay/%s" % CLIENT_VERSION
 
     def do_info(self):
+        plist_info = { 'qualifier': ['txtAirPlay'] }
+        plist_info_bin = writePlistToString(plist_info, True)
+
         self.connection.putrequest("GET", "/info", False, False)
         self.connection.putheader("CSeq", 1)
+        self.connection.putheader("Content-Length", len(plist_info_bin))
+        self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
         self.connection.putheader("User-Agent", self.version_string())
         self.connection.endheaders()
+        self.connection.send(plist_info_bin)
 
         res = self.connection.getresponse()
 
@@ -289,9 +295,9 @@ if __name__ == "__main__":
     try:
         HOST = "192.168.28.163"
         PORT = 7000
-
         monclient = AP2Client(HOST, PORT)
         res = monclient.do_pairing()
+        monclient.do_info()
         monclient.list_pairings()
         
         # if res.status==200:
