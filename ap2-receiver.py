@@ -18,11 +18,13 @@ from Crypto.Cipher import ChaCha20_Poly1305, AES
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
 from biplist import readPlistFromString, writePlistToString
 
+from ap2.airplay1 import AP1Security
 from ap2.playfair import PlayFair
 from ap2.utils import get_volume, set_volume
 from ap2.pairing.hap import Hap, HAPSocket
 from ap2.connections.event import Event
 from ap2.connections.stream import Stream
+from ap2 import airplay1
 
 # No Auth - coreutils, PairSetupMfi
 # MFi Verify fail error after pair-setup[2/5]
@@ -53,7 +55,7 @@ FEATURES = 0x8030040780a00
 # FEATURES = 0x30040780a00
 # FEATURES = 0x8030040780a00 | (1 << 27)
 
-FEATURES = 0x1c340405fca00
+FEATURES = 0x8030040F80A00
 
 DEVICE_ID = None
 IPV4 = None
@@ -190,12 +192,16 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_OPTIONS(self):
+        print("OPTIONS")
         print(self.headers)
 
+        # Build Apple-Reponse
+        apple_response = AP1Security.compute_apple_response(self.headers["Apple-Challenge"], self.client_address[0], DEVICE_ID)
         self.send_response(200)
         self.send_header("Server", self.version_string())
+        self.send_header("Apple-Response", apple_response)
         self.send_header("CSeq", self.headers["CSeq"])
-        self.send_header("Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, FLUSHBUFFERED, TEARDOWN, OPTIONS, POST, GET, PUT") 
+        self.send_header("Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER, POST, GET") 
         self.end_headers()
 
     def do_FLUSHBUFFERED(self):
@@ -394,7 +400,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     stream.teardown()
                     del self.server.streams[stream_id]
                 self.pp.pprint(plist)
-        self.send_response(200)
+        self.send_response(200) 
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
