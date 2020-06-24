@@ -512,6 +512,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", len(data))
             self.send_header("Content-Type", HTTP_CT_BPLIST)
             self.end_headers()
+            self.wfile.write(data)
 
     def handle_fp_setup(self):
         content_len = int(self.headers["Content-Length"])
