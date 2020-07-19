@@ -1,4 +1,4 @@
-image: ckdo/ap2-receiver:latest
+image: ckdo/ap2-receiver:debug-march
 manifests:
   - image: ckdo/ap2-receiver:amd64
     platform:
