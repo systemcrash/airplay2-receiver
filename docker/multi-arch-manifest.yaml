@@ -1,0 +1,21 @@
+image: ckdo/ap2-receiver:latest
+manifests:
+  - image: ckdo/ap2-receiver:amd64
+    platform:
+      architecture: amd64
+      os: linux
+  - image: ckdo/ap2-receiver:arm32v5
+    platform:
+      architecture: arm
+      os: linux
+      variant: v5
+  - image: ckdo/ap2-receiver:arm32v7
+    platform:
+      architecture: arm
+      os: linux
+      variant: v7
+  - image: ckdo/ap2-receiver:arm64v8
+    platform:
+      architecture: arm64
+      os: linux
+      variant: v8
