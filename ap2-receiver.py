@@ -196,7 +196,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         print(self.headers)
 
         # Build Apple-Reponse
-        apple_response = AP1Security.compute_apple_response(self.headers["Apple-Challenge"], self.client_address[0], DEVICE_ID)
+        apple_response = AP1Security.compute_apple_response(self.headers["Apple-Challenge"], IPV4, DEVICE_ID)
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("Apple-Response", apple_response)
