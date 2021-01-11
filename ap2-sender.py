@@ -144,9 +144,13 @@ class AP2Client():
         self.connection.send(body)
 
         res = self.connection.getresponse()
+        print("----- AUTH SETUP RESPONSE -----")
 
+        print(res.headers)
         if res.status == 200:
             data = res.read()
+            hexdump(data)
+
             server_curve25519_pk = data[0:32]
             accessory_shared_key = accessory_curve.exchange(
                 x25519.X25519PublicKey.from_public_bytes(server_curve25519_pk))
@@ -178,7 +182,7 @@ class AP2Client():
 
             pkcs7 = crypto.load_pkcs7_data(crypto.FILETYPE_ASN1, cert)
             certs = get_certificates(pkcs7)
-            
+
             for cert in certs:
                 rsapubkey = crypto.dump_publickey(crypto.FILETYPE_ASN1, cert.get_pubkey())
 
@@ -186,7 +190,10 @@ class AP2Client():
             signer = PKCS1_v1_5.new(rsakey)
 
             if signer.verify(message_to_check_digest, sig):
+                print("----- AUTH SETUP SIGNATURE OK  -----")
                 return True
+        else:
+            print("----- AUTH SETUP RESPONSE ERROR OCCURED -----")
 
     def do_pairing(self):
         if not self.connection.hap:
@@ -293,18 +300,13 @@ def get_certificates(self):
 if __name__ == "__main__":
 
     try:
-        HOST = "192.168.28.163"
+        HOST = "192.168.28.2"
         PORT = 7000
         monclient = AP2Client(HOST, PORT)
-        res = monclient.do_pairing()
+        monclient.do_pairing()
         monclient.do_info()
-        monclient.list_pairings()
-        
-        # if res.status==200:
+        auth_setup_ok = monclient.do_auth_setup()
 
-        # with AP2Client(HOST, PORT) as client:
-        #     print("Connection to client", HOST, ":", PORT)
-        #     client.do_pair_setup()
     except KeyboardInterrupt:
         pass
     finally:
