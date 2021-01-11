@@ -198,7 +198,7 @@ class HapClient:
         
     def do_pairing(self):
         self.pairing_status.global_status = "PENDING"
-        self.pairing_status.method = PairingMethod.PAIR_SETUP_AUTH
+        self.pairing_status.method = PairingMethod.PAIR_SETUP
         self.pairing_status.flags = PairingFlags.TRANSIENT
         self.pairing_status.state = PairingState.M1
         self.pairing_status.error = "None"
@@ -258,35 +258,37 @@ class HapClient:
         tvl_resp = Tlv8.decode(body)
 
         server_proof = tvl_resp[Tlv8.Tag.PROOF]
-        encrypted = tvl_resp[Tlv8.Tag.ENCRYPTEDDATA]
-
-        prk = hkdf.hkdf_extract(b"Pair-Setup-Encrypt-Salt", self.ctx.session_key)
-        session_key = hkdf.hkdf_expand(prk, b"Pair-Setup-Encrypt-Info", 32)
-        c = ChaCha20_Poly1305.new(key=session_key, nonce=b"PS-Msg04")
-
-        enc_tlv = encrypted[:-16]
-        tag = encrypted[-16:]
-
-        dec_tlv = c.decrypt_and_verify(enc_tlv, tag)
-        tlv_decoded = Tlv8.decode(dec_tlv)
-        cert = tlv_decoded[Tlv8.Tag.CERTIFICATE]
-        sig = tlv_decoded[Tlv8.Tag.SIGNATURE]
-
-        prk = hkdf.hkdf_extract(b"MFi-Pair-Setup-Salt", self.ctx.session_key)
-        message_to_check = hkdf.hkdf_expand(prk, b"MFi-Pair-Setup-Info", 32)
-        message_to_check_digest = SHA1.new()
-        message_to_check_digest.update(message_to_check)
-
-        rsapubfile = open("./sonos-pubkey.pem","r")
-        rsapubkey = rsapubfile.read()
-        rsakey = RSA.importKey(rsapubkey)
-        signer = PKCS1_v1_5.new(rsakey)
-
-        if signer.verify(message_to_check_digest, sig):
-            print("MFI Signature OK")
-        else:
-            print("MFI Signature KO")
-
+        
+        if Tlv8.Tag.ENCRYPTEDDATA in tvl_resp: 
+            encrypted = tvl_resp[Tlv8.Tag.ENCRYPTEDDATA]
+    
+            prk = hkdf.hkdf_extract(b"Pair-Setup-Encrypt-Salt", self.ctx.session_key)
+            session_key = hkdf.hkdf_expand(prk, b"Pair-Setup-Encrypt-Info", 32)
+            c = ChaCha20_Poly1305.new(key=session_key, nonce=b"PS-Msg04")
+    
+            enc_tlv = encrypted[:-16]
+            tag = encrypted[-16:]
+    
+            dec_tlv = c.decrypt_and_verify(enc_tlv, tag)
+            tlv_decoded = Tlv8.decode(dec_tlv)
+            cert = tlv_decoded[Tlv8.Tag.CERTIFICATE]
+            sig = tlv_decoded[Tlv8.Tag.SIGNATURE]
+    
+            prk = hkdf.hkdf_extract(b"MFi-Pair-Setup-Salt", self.ctx.session_key)
+            message_to_check = hkdf.hkdf_expand(prk, b"MFi-Pair-Setup-Info", 32)
+            message_to_check_digest = SHA1.new()
+            message_to_check_digest.update(message_to_check)
+    
+            rsapubfile = open("./sonos-pubkey.pem","r")
+            rsapubkey = rsapubfile.read()
+            rsakey = RSA.importKey(rsapubkey)
+            signer = PKCS1_v1_5.new(rsakey)
+    
+            if signer.verify(message_to_check_digest, sig):
+                print("MFI Signature OK")
+            else:
+                print("MFI Signature KO")
+    
         assert self.ctx.verify(server_proof)
         self.shared_key = self.ctx.session_key
         self.pairing_status.encrypted = True
