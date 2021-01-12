@@ -196,7 +196,7 @@ class HapClient:
                 Tlv8.Tag.METHOD, PairingMethod.LIST_PAIRINGS]
         return Tlv8.encode(req)
         
-    def do_pairing(self):
+    def do_pairing(self, pin_challenged=False):
         self.pairing_status.global_status = "PENDING"
         self.pairing_status.method = PairingMethod.PAIR_SETUP
         self.pairing_status.flags = PairingFlags.TRANSIENT
@@ -207,7 +207,12 @@ class HapClient:
         self.set_state_from_response(response)
 
         if self.pairing_status.state == PairingState.M2:
-            response = self.pair_setup_m2_m3(response)
+            if pin_challenged:
+                pin = input("Please enter the PIN displayed on the device: ")
+                response = self.pair_setup_m2_m3(response, pin)
+            else:
+                response = self.pair_setup_m2_m3(response)
+
             self.set_state_from_response(response)
 
         if self.pairing_status.state == PairingState.M4:
@@ -236,13 +241,13 @@ class HapClient:
         return Tlv8.encode(res)
 
     # Receive M2 response, Init M3
-    def pair_setup_m2_m3(self, body):
+    def pair_setup_m2_m3(self, body, pin=b"3939"):
         tvl_resp = Tlv8.decode(body)
 
         self.server_pk = tvl_resp[Tlv8.Tag.PUBLICKEY]
         self.salt = tvl_resp[Tlv8.Tag.SALT]
 
-        self.ctx = srp.SrpClient(b"Pair-Setup", b"3939", self.salt)
+        self.ctx = srp.SrpClient(b"Pair-Setup", pin, self.salt)
         self.ctx.set_server_public(self.server_pk)
 
         req = [Tlv8.Tag.STATE, PairingState.M3,

@@ -124,6 +124,22 @@ class AP2Client():
             print("----- INFO -----")
             self.dumpPlist(data)
 
+    def do_pairpinstart(self):
+        print("----- PAIR-PIN-START -----")
+
+        self.connection.putrequest("POST", "/pair-pin-start", False, False)
+        self.connection.putheader("CSeq", 1)
+        self.connection.putheader("Content-Type", HTTP_CT_BPLIST)
+        self.connection.putheader("User-Agent", self.version_string())
+        self.connection.endheaders()
+        # self.connection.send()
+
+        res = self.connection.getresponse()
+
+        if res.status == 200:
+            print("----- PAIR-PIN-START OK -----")
+
+
     def do_auth_setup(self):
         self.connection.putrequest("POST", "/auth-setup", False, False)
         self.connection.putheader("CSeq", 1)
@@ -195,11 +211,11 @@ class AP2Client():
         else:
             print("----- AUTH SETUP RESPONSE ERROR OCCURED -----")
 
-    def do_pairing(self):
+    def do_pairing(self, pin_challenged=False):
         if not self.connection.hap:
             self.connection.hap = HapClient(self.handle_pairing_callback)
 
-        self.connection.hap.do_pairing()
+        self.connection.hap.do_pairing(pin_challenged)
 
     def handle_pairing_callback(self, req, pairing_status):
         if pairing_status.encrypted:
@@ -303,7 +319,8 @@ if __name__ == "__main__":
         HOST = "192.168.28.2"
         PORT = 7000
         monclient = AP2Client(HOST, PORT)
-        monclient.do_pairing()
+        monclient.do_pairpinstart()
+        monclient.do_pairing(True)
         monclient.do_info()
         auth_setup_ok = monclient.do_auth_setup()
 
