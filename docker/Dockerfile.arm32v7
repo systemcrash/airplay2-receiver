@@ -1,34 +1,4 @@
-FROM alpine AS builder
-
-# Download QEMU, see https://github.com/docker/hub-feedback/issues/1261
-ENV QEMU_URL https://github.com/balena-io/qemu/releases/download/v3.0.0%2Bresin/qemu-3.0.0+resin-arm.tar.gz
-RUN apk add curl && curl -L ${QEMU_URL} | tar zxvf - -C . --strip-components 1
-
-FROM arm32v7/debian:buster
-
-# Add QEMU
-COPY --from=builder qemu-arm-static /usr/bin
-
-RUN apt-get update -yy && \
-    apt-get install -yy \
-        pkg-config \ 
-        avahi-daemon \
-        avahi-discover \
-        avahi-utils \
-        libnss-mdns \
-        dnsutils \
-        python3 \
-        python3-pip \
-        python3-pyaudio \
-        libffi-dev \
-        alsa-utils \
-	libavformat-dev \
-	libavcodec-dev \
-	libavdevice-dev \
-	libavutil-dev \
-	libavfilter-dev \
-	libswscale-dev \
-	libswresample-dev
+FROM ckdo/airplay2-receiver:base-amd64
 
 COPY ap2-receiver.py /airplay2/ap2-receiver.py
 COPY ap2 /airplay2/ap2
