@@ -21,6 +21,7 @@ import threading
 import multiprocessing
 import enum
 from enum import Flag
+import random
 import time
 from collections import deque
 
@@ -616,6 +617,60 @@ class PTPMaster:
         self.prio02 = data.prio02
         self.gmClockIdentity = data.gmClockIdentity
 
+    def __lt__(self, other):
+        if not isinstance(other, PTPMaster):
+            return False
+        if self.prio01 < other.prio01:
+            return True
+        if self.gmClockClass < other.gmClockClass:
+            return True
+        if self.gmClockAccuracy < other.gmClockAccuracy:
+            return True
+        if self.gmClockVariance < other.gmClockVariance:
+            return True
+        if self.prio02 < other.prio02:
+            return True
+        if self.gmClockIdentity < other.gmClockIdentity:
+            return True
+        return False
+    def __eq__(self, other):
+        if not isinstance(other, PTPMaster):
+            return False
+        return self.prio01 == other.prio01 and \
+            self.gmClockClass == other.gmClockClass and \
+            self.gmClockAccuracy == other.gmClockAccuracy and \
+            self.gmClockVariance == other.gmClockVariance and \
+            self.prio02 == other.prio02 and \
+            self.gmClockIdentity == other.gmClockIdentity
+
+class PTPForeignMaster:
+    def __init__(self):
+        self.sourcePortID = {}
+        self.announceAmount = 0
+    def __init__(self, data, arrival):
+        self.sourcePortID = {data.gmClockIdentity, data.sourcePortID}
+        self.announceAmount = 0
+        self.mostRecentAnnounceMessage = data
+        self.mraArrivalNanos = arrival
+    def inc(self):
+        self.announceAmount += 1
+    def setMostRecentAMsg(self, data):
+        self.mostRecentAnnounceMessage = data
+        self.inc()
+    def getAnnounceAmt(self):
+        return self.announceAmount
+    def getArrivalNanos(self):
+        return self.mraArrivalNanos
+    def getMostRecentAMsg(self):
+        return self.mostRecentAnnounceMessage
+    def __lt__(self, other):
+        return PTPMaster( self.getMostRecentAMsg() ) <  PTPMaster( other.getMostRecentAMsg() )
+    def __gt__(self, other):
+        return PTPMaster( self.getMostRecentAMsg() ) >  PTPMaster( other.getMostRecentAMsg() )
+    def __eq__(self, other):
+        return PTPMaster( self.getMostRecentAMsg() ) == PTPMaster( other.getMostRecentAMsg() )
+        # return self.sourcePortID == other.sourcePortID #also works
+
 class PTPPortState(enum.Enum):
     def __str__(self):
         #so when we enumerate, we only print the msg name w/o class:
@@ -625,11 +680,12 @@ class PTPPortState(enum.Enum):
     INITIALIZING, \
     LISTENING, \
     PASSIVE, \
-    SLAVE = range(4)
-    #not yet ready for MASTER
-
+    UNCALIBRATED, \
+    SLAVE = range(5)
+    #no code yet to run as MASTER
 
 class PTP():
+    
     def __init__(self, net_interface):
         self.portEvent319 = 319#Sync msgs / Event Port
         self.portGeneral320 = 320 #Followup msgs / General port
@@ -654,7 +710,7 @@ class PTP():
         self.meanPathDelayNanosValues = deque([0]*self.QLength, maxlen=self.QLength)
         self.processingOverhead = 0
         self.syncSequenceID = 0
-        self.useMasterPromoteAlgo = False
+        self.useMasterPromoteAlgo = True
         #add 2 empty bytes for 'PTP Port' to end of mac:
         self.net_interface = net_interface << 16
         self.net_interface_bytes = (net_interface << 16).to_bytes(8, byteorder='big')
@@ -666,6 +722,24 @@ class PTP():
         self.DelayReq_template[28:30] = self.DelayReq_PortID.to_bytes(2, byteorder='big')
         self.portStateChange(PTPPortState.INITIALIZING)
         self.PTPcorrection = 0
+        self.fML = [] #<foreignMasterList> # 9.3.2.4.6 Size of <foreignMasterList> min 5
+        """
+        Each entry of the <foreignMasterList> contains two or three members:
+        - <foreignMasterList>[].foreignMasterPortIdentity,
+        - <foreignMasterList>[].foreignMasterAnnounceMessages, and optionally
+        - <foreignMasterList>[].mostRecentAnnounceMessage.
+        """
+        self.fMTW = 4 #FOREIGN_MASTER_TIME_WINDOW = 4 announceInterval
+        self.fMThr= 2 #FOREIGN_MASTER_THRESHOLD 2 Announce msg within FOREIGN_MASTER_TIME_WINDOW
+        """
+        announceReceiptTimeoutInterval = portDS.announceReceiptTimeout * announceInterval
+        """
+        self.announceReceiptTimeout = 3
+        self.announceInterval = 0
+        #count down nanos from last Announce - expires current GM
+        self.lastAnnounceFromMasterNanos = 0
+
+
 
     def promoteMaster(self,ptpmsg,reason):
         self.gm = PTPMaster(ptpmsg)
@@ -677,51 +751,22 @@ class PTP():
         self.offsetFromMasterValues = deque([0]*self.QLength, maxlen=self.QLength)
         self.meanPathDelayNanosValues = deque([0]*self.QLength, maxlen=self.QLength)        
         self.portStateChange(PTPPortState.SLAVE)
+        self.announceInterval = 2** ptpmsg.logMessagePeriod
 
     def compareMaster(self, ptpmsg):
+        #This algo promotes a new master if its properties are better than currently elected GM
+        # prio1 < Class < Accuracy < Variance < prio2 < Ident(mac)
+        # Lower values == "better"
         if self.gm is None:
             self.promoteMaster(ptpmsg, "reset")
+        else:
+            incoming = PTPMaster(ptpmsg)
 
-        #TODO: This algo chooses a new master
-        # We should 'forget' current gm if it stops announcing
-        # prio1 < Class < Accuracy < Variance < prio2 < Ident(mac)
-        # Lower values = "better"
-        # bp1 = bcc = bac = bva = bp2 = loi = False
-
-        if(ptpmsg.prio01 < self.gm.prio01):
-            self.promoteMaster(ptpmsg, "better priority01")
-            return
-        # elif(self.gm.prio01 > ptpmsg.prio01):
-        # no change
-        #   self.promoteMaster(self.gm, "better priority01")
-        # elif(ptpmsg.prio01 == self.gm.prio01):
-        #     pass
-        if(ptpmsg.gmClockClass < self.gm.gmClockClass):
-            self.promoteMaster(ptpmsg, "better ClockClass")
-            return
-        # elif(ptpmsg.gmClockClass == self.gm.gmClockClass):
-        #     pass
-        if(ptpmsg.gmClockAccuracy < self.gm.gmClockAccuracy):
-            self.promoteMaster(ptpmsg, "better Accuracy")
-            return
-        # elif(ptpmsg.gmClockAccuracy == self.gm.gmClockAccuracy):
-        #     pass
-        if(ptpmsg.gmClockVariance < self.gm.gmClockVariance):
-            self.promoteMaster(ptpmsg, "better Variance")
-            return
-        # elif(ptpmsg.gmClockVariance == self.gm.gmClockVariance):
-        #     pass
-        if(ptpmsg.prio02 < self.gm.prio02):
-            self.promoteMaster(ptpmsg, "better priority02")
-            return
-        # elif(ptpmsg.prio02 == self.gm.prio02):
-        #     pass
-        if(ptpmsg.gmClockIdentity < self.gm.gmClockIdentity):
-            self.promoteMaster(ptpmsg, "lower Ident")
-            return
-        # elif(ptpmsg.gmClockIdentity == self.gm.gmClockIdentity):
-        #     return
-        return
+            if (incoming < self.gm ) == True:
+                self.promoteMaster(ptpmsg, "better GM")
+                self.fML = []
+            #else:
+                #retain current GM
 
     def sendDelayRequest(self, sequenceID):
         self.DelayReq_template[30:32] = sequenceID.to_bytes(2, byteorder='big')
@@ -730,6 +775,49 @@ class PTP():
     def portStateChange(self, PTPPortState):
         self.portState = PTPPortState
         print(f"PTP State: {self.portState}")
+
+    def getPortState(self):
+        return self.portState
+
+    def knownForeignMaster(self, ptpfm, ptpmsg, arrivalNanos):
+        """
+        Looks at our list of foreignMaster candidates and when we have enough Announce
+        msgs from one, we kick off the BMCA: compareMaster()
+        """
+        """
+        9.3.2.5 Qualification of Announce messages
+
+        c) Unless otherwise specified by the option of 17.7, if the sender of S is a foreign 
+        master F, and fewer than FOREIGN_MASTER_THRESHOLD distinct Announce messages from F 
+        have been received within the most recent FOREIGN_MASTER_TIME_WINDOW interval, S 
+        shall not be qualified. Distinct Announce messages are those that have different 
+        sequenceIds, subject to the constraints of the rollover of the UInteger16 data type 
+        used for the sequenceId field.
+        ...
+        d) If the stepsRemoved field of S is 255 or greater, S shall not be qualified.
+        ...
+        e) This specification “e” is optional. ...
+        ...
+        f) Otherwise, S shall be qualified.
+        """
+        if not ptpfm in self.fML:
+            self.fML.append( ptpfm )
+            #new in list means count == 0, so we skip sorting/comparing
+            return False
+        else:
+            self.fML[self.fML.index( ptpfm )].setMostRecentAMsg(ptpmsg)
+            #check previous Announce arrivalNanos
+            lMP = 2**ptpmsg.logMessagePeriod #e.g. 2^-2 = 0.25 sec
+            #check interarrival diff of current and stored Announce nanos is 
+            # less than FOREIGN_MASTER_TIME_WINDOW * logMessagePeriod
+            considerBMCA = ( (arrivalNanos - self.fML[self.fML.index( ptpfm 
+                )].getArrivalNanos() ) * 10**-9 ) < (self.fMTW * lMP) # e.g. 4 * 0.25 = 1 sec
+            self.fML.sort() #keep fML list sorted, and mash [0] into BMCA when time comes
+            if self.fML[self.fML.index( ptpfm )].getAnnounceAmt() >= self.fMThr and \
+                considerBMCA:
+                #run BMCA
+                self.compareMaster( self.fML[0].getMostRecentAMsg() )
+            return True
 
     def handlemsg(self, ptpmsg, address, timestampArrival, processingOverhead):
         # print(f"entered handlemsg() with {ptpmsg.sequenceID} and {self.syncSequenceID}")
@@ -827,34 +915,52 @@ class PTP():
                f"receiveTimestamp: {ptpmsg.rcvTimestampSec}.{ptpmsg.rcvTimestampNanoSec:09d}",
                )
         elif(ptpmsg.msg_type == MsgType.ANNOUNCE ):
-            #path trace TLV path-seq in Announce (also) has GM
-            """
-            IEEE-1588-2019:
-            16.2.3 Receipt of an Announce message
-            A PTP Port of a Boundary Clock receiving an Announce message from 
-             the current parent PTP Instance shall:
-            a) Scan the pathSequence member of any PATH_TRACE TLV present for a value of the 
-             clockIdentity field equal to the value of the defaultDS.clockIdentity member of 
-             the receiving PTP Instance, that is, there is a “match.”
-            b) Discard the message if the TLV is present and a match is found.
-            c) Copy the pathSequence member of the TLV to the pathTraceDS.list member 
-             (see 16.2.2.2.1) if the TLV is present and no match is found.
-            """
-            if(self.gm == None):
-            #if incoming master is 'better' - were we announcing, we would stop
-                self.promoteMaster(ptpmsg, "reset")
-            elif (
-                ptpmsg.gmClockIdentity != 
-                self.gm.gmClockIdentity):
-                #normally, PTP masters negotiate amongst themselves who leads, 
-                # then only that 1 gm sends announce.
+            ptpfm = PTPForeignMaster(ptpmsg, timestampArrival)
+            if not (self.getPortState() == PTPPortState.INITIALIZING or 
+                self.getPortState() == PTPPortState.SLAVE or
+                self.getPortState() == PTPPortState.PASSIVE or 
+                self.getPortState() == PTPPortState.UNCALIBRATED):
+
+                if(self.gm == None):
+                    #if incoming master is 'better' - were we announcing, we would stop
+                    # self.fML.append( ptpfm )
+                    # self.promoteMaster(ptpmsg, "reset")
+
+                    if self.knownForeignMaster(ptpfm, ptpmsg, timestampArrival):
+                        pass
+
+                    """
+                    Normally, (in AirPlay) PTP masters negotiate amongst themselves who leads, 
+                     then only that 1 gm sends announce.
+                    In this half PTP implementation, as a CPU measure, we can let them fight it 
+                    out and then just run promoteMaster directly.
+                    """
+                    if not self.useMasterPromoteAlgo:
+                        self.promoteMaster(ptpmsg, "changeover")
+                    # else:
+                    #     self.compareMaster(ptpmsg)
+            if(self.gm != None):
+                #path trace TLV path-seq in Announce (also) has GM
                 """
-                In this "half" PTP implementation, let them fight it out and then promoteMaster
+                IEEE-1588-2019:
+                16.2.3 Receipt of an Announce message
+                A PTP Port of a Boundary Clock receiving an Announce message from 
+                 the current parent PTP Instance shall:
+                a) Scan the pathSequence member of any PATH_TRACE TLV present for a value of the 
+                 clockIdentity field equal to the value of the defaultDS.clockIdentity member of 
+                 the receiving PTP Instance, that is, there is a “match.”
+                b) Discard the message if the TLV is present and a match is found.
+                c) Copy the pathSequence member of the TLV to the pathTraceDS.list member 
+                 (see 16.2.2.2.1) if the TLV is present and no match is found.
                 """
-                if not self.useMasterPromoteAlgo:
-                    self.promoteMaster(ptpmsg, "changeover")
-                else:
-                    self.compareMaster(ptpmsg)
+                if self.gm.gmClockIdentity in ptpmsg.tlvPathSequence:
+                    self.lastAnnounceFromMasterNanos = timestampArrival
+                    pass
+                else: #if self.gm.gmClockIdentity != ptpmsg.gmClockIdentity:
+                    #update fML
+                    self.knownForeignMaster(ptpfm, ptpmsg, timestampArrival)
+                    if not self.useMasterPromoteAlgo:
+                        self.compareMaster(ptpmsg)
 
             if (ptpmsg.sequenceID % thinning == 0) and displayMsgs:
                 #varianceb10 = 2**((ptpmsg.gmClockVariance - 0x8000) / 2**8)
@@ -970,9 +1076,19 @@ class PTP():
                 delay_req = self.handlemsg(ptpmsg, address, timestampArrival, self.processingOverhead)
                 if delay_req != None:
                     s.sendto(delay_req, address)
-            #some arbitrary timeout for now 5 sec
-            if timenow - timestampArrival > (5 * (10**9)):
+            """
+            9.2.6.12 ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES
+            Each protocol engine shall support a timeout mechanism defining the 
+            <announceReceiptTimeoutInterval>, with a value of portDS.announceReceiptTimeout 
+            multiplied by the announceInterval (see 7.7.3.1).
+            The ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES event occurs at the expiration of this timeout 
+            plus a random number uniformly distributed in the range (0,1) announceIntervals.
+            """
+            if self.gm != None and ((timenow - self.lastAnnounceFromMasterNanos) * 10**-9) > \
+             ( (self.announceInterval * (self.announceReceiptTimeout + random.randrange(2) ))):
+                self.gm = None
                 self.portStateChange(PTPPortState.LISTENING)
+                #alt self.portStateChange(PTPPortState.MASTER)
 
         for s in sockets:
            s.close()
