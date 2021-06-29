@@ -115,7 +115,7 @@ def setup_global_structs(args):
 
     if DISABLE_VM:
         volume = 0
-    else: 
+    else:
         volume = get_volume()
     second_stage_info = {
         "initialVolume": volume,
@@ -126,15 +126,15 @@ def setup_global_structs(args):
             'timingPort': 0,
             'timingPeerInfo': {
                 'Addresses': [
-                    IPV4, IPV6], 
+                    IPV4, IPV6],
                 'ID': IPV4}
             }
 
     sonos_one_setup_data = {
             'streams': [
                 {
-                    'type': 96, 
-                    'dataPort': 0, # AP2 receiver data server 
+                    'type': 96,
+                    'dataPort': 0, # AP2 receiver data server
                     'controlPort': 0 # AP2 receiver control server
                     }
                 ]
@@ -200,7 +200,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
-        self.send_header("Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, FLUSHBUFFERED, TEARDOWN, OPTIONS, POST, GET, PUT") 
+        self.send_header("Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, FLUSHBUFFERED, TEARDOWN, OPTIONS, POST, GET, PUT, SETRATEANCHORTIME")
         self.end_headers()
 
     def do_FLUSHBUFFERED(self):
@@ -371,7 +371,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         elif content_type == HTTP_CT_IMAGE:
             if content_len > 0:
                 fname = None
-                with tempfile.NamedTemporaryFile(prefix="artwork", dir=".", delete=False) as f:
+                with tempfile.NamedTemporaryFile(prefix="artwork", dir=".", delete=False, suffix=".jpg") as f:
                     f.write(self.rfile.read(content_len))
                     fname = f.name
                 print("Artwork saved to %s" % fname)
@@ -441,7 +441,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
-        
+
         # Erase the hap() instance, otherwise reconnects fail
         self.server.hap = None
 
@@ -727,6 +727,16 @@ if __name__ == "__main__":
                 exit(-1)
     except Exception:
         print("[!] Network interface not found")
+        print("Available network interfaces:")
+        for p in ni.interfaces():
+            print(p)
+            addrs = ni.ifaddresses(p)
+            for a in addrs:
+                #print('  ' + str(a))
+                for ak in addrs[a]:
+                    for akx in ak:
+                        if str(akx) == 'addr':
+                            print('    ' + str(akx) + ': ' + str(ak[akx]))
         exit(-1)
 
 
