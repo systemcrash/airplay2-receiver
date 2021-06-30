@@ -11,7 +11,7 @@
 # License: GPLv2
 
 Most behaviour in here is derived from PTP within AirPlay. Assume that Apple has its own
-PTP Profile. So unless otherwise stated here, the values here apply to Apple's profile. 
+PTP Profile. So unless otherwise stated here, the values here apply to Apple's profile.
 
 """
 
@@ -58,7 +58,7 @@ self.control # 1 byte
 self.logMessagePeriod # 1 byte
 ##Delay_Req message
 self.originTimestampSec #6 bytes - seconds
-self.originTimestampNanoSec #4 bytes - nanoseconds    
+self.originTimestampNanoSec #4 bytes - nanoseconds
 ##Delay_Resp message
 self.rcvTimestampSec #6 bytes - seconds
 self.rcvTimestampNanoSec #4 bytes - nanoseconds
@@ -97,7 +97,7 @@ class MsgType(enum.Enum):
 
 class GMCAccuracy(enum.Enum):
     def __str__(self):
-        return self.name 
+        return self.name
     #GM = GrandMaster
     #00-1F - reserved
     nS25                    =   0x20 #25 nanosec
@@ -125,7 +125,7 @@ class GMCAccuracy(enum.Enum):
 
 class ClkSource(enum.Enum):
     def __str__(self):
-        return self.name 
+        return self.name
     ATOMIC                  =   0X10
     GPS                     =   0x20
     TERRESTRIAL_RADIO       =   0x30
@@ -139,7 +139,7 @@ class ClkSource(enum.Enum):
 
 class ClkClass(enum.Enum):
     def __str__(self):
-        return self.name 
+        return self.name
     #RESERVED 000-005
     PRIMARY_REF_LOCKED      =     6
     PRIMARY_REF_UNLOCKED    =     7
@@ -209,7 +209,7 @@ class PTPMsg:
             #V in TLV could be 8 byte or 6 byte. TLVs are even in length.
             """
             1588-2019: 14.3.2 TLV member specifications
-            All organization-specific TLV extensions shall have 
+            All organization-specific TLV extensions shall have
             the format specified in Table 53:
             bitfield       | Octets | TLV offset
             tlvType             | 2 | 0
@@ -231,37 +231,37 @@ class PTPMsg:
             lastGmPhaseChange         | 12| 16
             scaledLastGmFreqChange    | 4 | 28
 
-            
+
             int32   : cumulative scaledRateOffset
             uint16  : gmTimeBaseIndicator
             ScaledNs: scaledLastGmPhaseChange
-            int32   : scaledLastGmFreqChange: 
-            
+            int32   : scaledLastGmFreqChange:
+
             ScaledNs =
             uint16 Nanos Msb
             uint64 Nanos Lsb
             uint16 FracNanos
 
-            scaledRateOffset = (rateRatio – 1.0) × (2^41), truncated to the next smaller signed 
-            integer, where rateRatio is the ratio of the frequency of the grandMaster to the 
+            scaledRateOffset = (rateRatio – 1.0) × (2^41), truncated to the next smaller signed
+            integer, where rateRatio is the ratio of the frequency of the grandMaster to the
             frequency of the LocalClock entity in the time-aware system that sends the message.
 
-            gmTimeBaseIndicator = 
+            gmTimeBaseIndicator =
             timeBaseIndicator of the ClockSource entity for the current grandmaster
 
-            lastGmPhaseChange = 
-            (time of the current GM - time of the prev GM), at the 
+            lastGmPhaseChange =
+            (time of the current GM - time of the prev GM), at the
             time that the current GM became GM.
-            value is copied from the lastGmPhaseChange member of the MDSyncSend structure whose 
+            value is copied from the lastGmPhaseChange member of the MDSyncSend structure whose
             receipt causes the MD entity to send the Follow_Up message
 
-            scaledLastGmFreqChange = 
+            scaledLastGmFreqChange =
 
-            fractional frequency offset of the current GM relative to the previous GM, 
-            at the time that the current GM became GM. or relative to itself prior to the last 
-            change in gmTimeBaseIndicator, multiplied by 2^41 and truncated to the next smaller 
-            signed integer. The value is obtained by multiplying the lastGmFreqChange member of 
-            MDSyncSend whose receipt causes the MD entity to send the Follow_Up message 
+            fractional frequency offset of the current GM relative to the previous GM,
+            at the time that the current GM became GM. or relative to itself prior to the last
+            change in gmTimeBaseIndicator, multiplied by 2^41 and truncated to the next smaller
+            signed integer. The value is obtained by multiplying the lastGmFreqChange member of
+            MDSyncSend whose receipt causes the MD entity to send the Follow_Up message
             (see 11.2.11) by 2^41 , and truncating to the next smaller signed Integer8
             """
 
@@ -279,7 +279,7 @@ class PTPMsg:
             announceInterval    | 1 | 12
             flags               | 1 | 13
             reserved            | 2 | 14
-            
+
             uint8 : linkDelayInterval
             uint8 : timeSyncInterval
             uint8 : announceInterval
@@ -287,9 +287,9 @@ class PTPMsg:
             uint16: reserved
 
             10.5.4.3.6 linkDelayInterval (Integer8)
-            = log base 2 of mean time interval, desired by the port that sends this TLV, 
+            = log base 2 of mean time interval, desired by the port that sends this TLV,
             between successive Pdelay_Req messages sent by the port at the other end of the link
-            The format and allowed values of linkDelayInterval are the same as the format and 
+            The format and allowed values of linkDelayInterval are the same as the format and
             allowed values of initialLogPdelayReqInterval, see 11.5.2.2.
             values 127, 126, and –128 are interpreted as defined in Table 10-11.
 
@@ -299,23 +299,23 @@ class PTPMsg:
             –128= not to change the mean time interval between successive Pdelay_Req messages.
 
             10.5.4.3.7 timeSyncInterval (Integer8)
-            = log base 2 of mean time interval, desired by the port that sends this TLV, 
+            = log base 2 of mean time interval, desired by the port that sends this TLV,
             between successive time-synchronization event messages sent by the port at the other
-             end of the link. The format and allowed values of timeSyncInterval are the same as 
-             the format and allowed values of initialLogSyncInterval, see 10.6.2.3, 11.5.2.3, 
+             end of the link. The format and allowed values of timeSyncInterval are the same as
+             the format and allowed values of initialLogSyncInterval, see 10.6.2.3, 11.5.2.3,
              12.6, and 13.9.2.
             values 127, 126, and –128 are interpreted as defined in Table 10-12.
 
             10-12
             127 = stop sending
             126 = set currentLogSyncInterval to the value of initialLogSyncInterval
-            -128= not to change the mean time interval between successive time- synchronization 
+            -128= not to change the mean time interval between successive time- synchronization
             event messages
 
             10.5.4.3.8 announceInterval (Integer8)
             = log base 2 of mean time interval, desired by the port that sends this TLV, between
-             successive Announce messages sent by the port at the other end of the link. The 
-             format and allowed values of announceInterval are the same as the format and 
+             successive Announce messages sent by the port at the other end of the link. The
+             format and allowed values of announceInterval are the same as the format and
              allowed values of initialLogAnnounceInterval, see 10.6.2.2.
             values –128, +126, and +127 are interpreted as defined in Table 10-13.
 
@@ -335,11 +335,11 @@ class PTPMsg:
             lengthField         | 2 | 2   <-- 46
             organizationId      | 3 | 4   <-- 00:80:c2
             organizationSubType | 3 | 7   <-- 00:00:03
-            upstreamTxTime      | 12| 10  
+            upstreamTxTime      | 12| 10
             neighborRateRatio   | 4 | 22
             neighborPropDelay   | 12| 26
             delayAsymmetry      | 12| 38
-            
+
             upstreamTxTime (UScaledNs)
             neighborRateRatio (Integer32)
             neighborPropDelay (UScaledNs)
@@ -356,14 +356,14 @@ class PTPMsg:
             organizationId      | 3 | 4   <-- 00:0d:93
             organizationSubType | 3 | 7   <-- 00:00:01
             dataField           | N | 10  <-- where:
-            
+
             uint8 : linkDelayInterval
             uint8 : timeSyncInterval
             uint8 : announceInterval
             uint8 : flags (== 3)
             uint16: reserved?
             12 bytes extra - wooh!
-            
+
             """
 
             """Apple specific TLV in (IPv6) Follow_Up seems to be:
@@ -373,7 +373,7 @@ class PTPMsg:
             organizationId      | 3 | 4   <-- 00:0d:93
             organizationSubType | 3 | 7   <-- 00:00:04
             dataField           | N | 10  <-- where:
-            
+
             8 byte clock ID (including port)
             2 bytes (reserved?)
             """
@@ -389,20 +389,20 @@ class PTPMsg:
                 # tlvSeq = [[None for c in range(3)] for r in range(tlvRecordAmt)]
 
                 #Usually 00:80:c2:00:00:01 within FOLLOWUP
-                #Apple: 00:0d:93 sub: 00:00:04 => meaning: defined by Apple. 
+                #Apple: 00:0d:93 sub: 00:00:04 => meaning: defined by Apple.
                 # https://hwaddress.com/mac-address-range/00-0D-93-00-00-00/00-0D-93-FF-FF-FF/
                 #evidently contains clockID(mac)+port
                 for x in range(0,tlvRecordAmt):
-                    if (tlvUnitSize-6)%8 == 0: 
+                    if (tlvUnitSize-6)%8 == 0:
                         #'one-liner' to split into an array of 8 byte segments. Evil >:) :
-                        tlvData = [int.from_bytes(data[start+10+(x*tlvUnitSize)+b:start+10+(x*tlvUnitSize)+b+8], 
+                        tlvData = [int.from_bytes(data[start+10+(x*tlvUnitSize)+b:start+10+(x*tlvUnitSize)+b+8],
                             byteorder='big') for b in range(0, tlvUnitSize-6, 8)]
                     else:
-                        tlvData = int.from_bytes(data[start+10+(x*tlvUnitSize):start+4+tlvLen+(x*tlvUnitSize)], 
+                        tlvData = int.from_bytes(data[start+10+(x*tlvUnitSize):start+4+tlvLen+(x*tlvUnitSize)],
                             byteorder='big')
-                    
+
                     tlvSeq.append(
-                        [ 
+                        [
                         tlvType,
                         #OID+subOID:
                         int.from_bytes(data[start+ 4+(x*tlvUnitSize):start+10+(x*tlvUnitSize)], byteorder='big'),
@@ -421,7 +421,7 @@ class PTPMsg:
                 lengthField         | 2 | 2
                 pathSequence        | 8N| 4
 
-                N is equal to stepsRemoved+1 (see 10.5.3.2.6). The size of the pathSequence array 
+                N is equal to stepsRemoved+1 (see 10.5.3.2.6). The size of the pathSequence array
                 increases by 1 for each time-aware system that the Announce information traverses.
                 """
                 tlvUnitSize = 8 #bytes
@@ -447,7 +447,7 @@ class PTPMsg:
         self.msgLength = \
         int.from_bytes(data[2:4], byteorder='big')
         if len(data) == self.msgLength:
-            # domain: 0 = default | 1 = alt 1 | 3 = alt 3 | 4-127, user defined. 
+            # domain: 0 = default | 1 = alt 1 | 3 = alt 3 | 4-127, user defined.
             self.subdomainNumber = data[4]
             msgFlagsA = \
             int.from_bytes(data[6:7], byteorder='big')
@@ -478,8 +478,8 @@ class PTPMsg:
             #self.control    =   data[32]
             #logMessagePeriod / Interval: for Sync, Followup, Del_resp: unicast = 0x7F
             #multicast = log2(interval between multicast messages)
-            # y = log2(x) => if lMP = -2, x = 0.25 sec i.e. send 4 Sync every second. 
-            # -3 => 8 per second. 
+            # y = log2(x) => if lMP = -2, x = 0.25 sec i.e. send 4 Sync every second.
+            # -3 => 8 per second.
             #Sync: -7 -> 1 (128/sec -> 1 per 2 sec)
             #Ann : -3 -> 3 (8/sec   -> 1 per 8 sec)
             #Delay_Resp: def -4 (16/sec) | -7 -> 6 (128/sec -> 1 per 64 sec)
@@ -494,14 +494,14 @@ class PTPMsg:
                 if( self.msg_type == MsgType.ANNOUNCE ):
                     # self.originCurrentUTCOffset = int.from_bytes(data[44:46], byteorder='big')
                     #skip 1 reserved byte
-                    #GM determined by (lower = better): 
+                    #GM determined by (lower = better):
                     # prio1 < Class < Accuracy < Variance < prio2 < Ident(mac)
                     self.prio01 = data[47]
                     #ClockClass = Quality Level (QL)
                     self.gmClockClass =    data[48]
                     self.gmClockAccuracy = data[49]
                     #variance: lower = better. Based on Allan Variance / Sync intv
-                    #PTP variance is equal to Allan variance multiplied by (τ^2)/3, 
+                    #PTP variance is equal to Allan variance multiplied by (τ^2)/3,
                     #where τ is the sampling interval
                     self.gmClockVariance = \
                     int.from_bytes(data[50:52], byteorder='big')
@@ -577,7 +577,7 @@ class PTPMsg:
                     tlvType     =   int.from_bytes(data[tlvStart+0:tlvStart+ 2], byteorder='big')
                     tlvLen      =   int.from_bytes(data[tlvStart+2:tlvStart+ 4], byteorder='big')
                     tlvExtraOID =   int.from_bytes(data[tlvStart+4:tlvStart+10], byteorder='big') #OID+subOID
-                    #Apple: 00:0d:93 sub: 00:00:04 => meaning: defined by Apple. 
+                    #Apple: 00:0d:93 sub: 00:00:04 => meaning: defined by Apple.
                     # https://hwaddress.com/mac-address-range/00-0D-93-00-00-00/00-0D-93-FF-FF-FF/
                     #evidently contains clockID(mac)+port
                     if tlvExtraOID & 0x000d93000004:
@@ -685,7 +685,7 @@ class PTPPortState(enum.Enum):
     #no code yet to run as MASTER
 
 class PTP():
-    
+
     def __init__(self, net_interface):
         self.portEvent319 = 319#Sync msgs / Event Port
         self.portGeneral320 = 320 #Followup msgs / General port
@@ -749,7 +749,7 @@ class PTP():
             )
         #reset cumulative mean values to 0
         self.offsetFromMasterValues = deque([0]*self.QLength, maxlen=self.QLength)
-        self.meanPathDelayNanosValues = deque([0]*self.QLength, maxlen=self.QLength)        
+        self.meanPathDelayNanosValues = deque([0]*self.QLength, maxlen=self.QLength)
         self.portStateChange(PTPPortState.SLAVE)
         self.announceInterval = 2** ptpmsg.logMessagePeriod
 
@@ -787,11 +787,11 @@ class PTP():
         """
         9.3.2.5 Qualification of Announce messages
 
-        c) Unless otherwise specified by the option of 17.7, if the sender of S is a foreign 
-        master F, and fewer than FOREIGN_MASTER_THRESHOLD distinct Announce messages from F 
-        have been received within the most recent FOREIGN_MASTER_TIME_WINDOW interval, S 
-        shall not be qualified. Distinct Announce messages are those that have different 
-        sequenceIds, subject to the constraints of the rollover of the UInteger16 data type 
+        c) Unless otherwise specified by the option of 17.7, if the sender of S is a foreign
+        master F, and fewer than FOREIGN_MASTER_THRESHOLD distinct Announce messages from F
+        have been received within the most recent FOREIGN_MASTER_TIME_WINDOW interval, S
+        shall not be qualified. Distinct Announce messages are those that have different
+        sequenceIds, subject to the constraints of the rollover of the UInteger16 data type
         used for the sequenceId field.
         ...
         d) If the stepsRemoved field of S is 255 or greater, S shall not be qualified.
@@ -808,9 +808,9 @@ class PTP():
             self.fML[self.fML.index( ptpfm )].setMostRecentAMsg(ptpmsg)
             #check previous Announce arrivalNanos
             lMP = 2**ptpmsg.logMessagePeriod #e.g. 2^-2 = 0.25 sec
-            #check interarrival diff of current and stored Announce nanos is 
+            #check interarrival diff of current and stored Announce nanos is
             # less than FOREIGN_MASTER_TIME_WINDOW * logMessagePeriod
-            considerBMCA = ( (arrivalNanos - self.fML[self.fML.index( ptpfm 
+            considerBMCA = ( (arrivalNanos - self.fML[self.fML.index( ptpfm
                 )].getArrivalNanos() ) * 10**-9 ) < (self.fMTW * lMP) # e.g. 4 * 0.25 = 1 sec
             self.fML.sort() #keep fML list sorted, and mash [0] into BMCA when time comes
             if self.fML[self.fML.index( ptpfm )].getAnnounceAmt() >= self.fMThr and \
@@ -829,7 +829,7 @@ class PTP():
             ( ptpmsg.msg_type == MsgType.DELAY_REQ ) ):
 
             if( ptpmsg.sequenceID % thinning == 0 ) and displayMsgs:
-                print(f"PTP319 {ptpmsg.msg_type: <12}", 
+                print(f"PTP319 {ptpmsg.msg_type: <12}",
                f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
                f"clockId: {ptpmsg.clockIdentity:016x}",
                f"seq-ID: {ptpmsg.sequenceID:08d}",
@@ -857,7 +857,7 @@ class PTP():
                 #     self.t1_arr_nanos = ptpmsg.originTimestampSec + (ptpmsg.originTimestampNanoSec / 10 ** 9)
                 #     self.ms_propagation_delay = t2_arr - t1_arr
 
-        elif( ptpmsg.msg_type == MsgType.DELAY_RESP and 
+        elif( ptpmsg.msg_type == MsgType.DELAY_RESP and
             ptpmsg.requestingSrcPortIdentity == self.net_interface ):
             """
             IEEE1588-2019 Spec says:
@@ -892,7 +892,7 @@ class PTP():
 
             diff of the above two:
             diff = (self.t3_egress_nanos + mpd - self.offsetFromMasterNanos) - \
-              ((ptpmsg.rcvTimestampSec*(10**9)) + ptpmsg.rcvTimestampNanoSec) 
+              ((ptpmsg.rcvTimestampSec*(10**9)) + ptpmsg.rcvTimestampNanoSec)
 
             as our clock derived from master:
             t4 = (ptpmsg.rcvTimestampSec*(10**9)) + ptpmsg.rcvTimestampNanoSec \
@@ -916,9 +916,9 @@ class PTP():
                )
         elif(ptpmsg.msg_type == MsgType.ANNOUNCE ):
             ptpfm = PTPForeignMaster(ptpmsg, timestampArrival)
-            if not (self.getPortState() == PTPPortState.INITIALIZING or 
+            if not (self.getPortState() == PTPPortState.INITIALIZING or
                 self.getPortState() == PTPPortState.SLAVE or
-                self.getPortState() == PTPPortState.PASSIVE or 
+                self.getPortState() == PTPPortState.PASSIVE or
                 self.getPortState() == PTPPortState.UNCALIBRATED):
 
                 if(self.gm == None):
@@ -930,9 +930,9 @@ class PTP():
                         pass
 
                     """
-                    Normally, (in AirPlay) PTP masters negotiate amongst themselves who leads, 
+                    Normally, (in AirPlay) PTP masters negotiate amongst themselves who leads,
                      then only that 1 gm sends announce.
-                    In this half PTP implementation, as a CPU measure, we can let them fight it 
+                    In this half PTP implementation, as a CPU measure, we can let them fight it
                     out and then just run promoteMaster directly.
                     """
                     if not self.useMasterPromoteAlgo:
@@ -944,13 +944,13 @@ class PTP():
                 """
                 IEEE-1588-2019:
                 16.2.3 Receipt of an Announce message
-                A PTP Port of a Boundary Clock receiving an Announce message from 
+                A PTP Port of a Boundary Clock receiving an Announce message from
                  the current parent PTP Instance shall:
-                a) Scan the pathSequence member of any PATH_TRACE TLV present for a value of the 
-                 clockIdentity field equal to the value of the defaultDS.clockIdentity member of 
+                a) Scan the pathSequence member of any PATH_TRACE TLV present for a value of the
+                 clockIdentity field equal to the value of the defaultDS.clockIdentity member of
                  the receiving PTP Instance, that is, there is a “match.”
                 b) Discard the message if the TLV is present and a match is found.
-                c) Copy the pathSequence member of the TLV to the pathTraceDS.list member 
+                c) Copy the pathSequence member of the TLV to the pathTraceDS.list member
                  (see 16.2.2.2.1) if the TLV is present and no match is found.
                 """
                 if self.gm.gmClockIdentity in ptpmsg.tlvPathSequence:
@@ -985,7 +985,7 @@ class PTP():
 
         elif(ptpmsg.msg_type == MsgType.FOLLOWUP ): #
             #in Airplay(2) PreciseOriginTimestamp = device uptime.
-            if(ptpmsg.sequenceID == self.syncSequenceID and 
+            if(ptpmsg.sequenceID == self.syncSequenceID and
                 self.gm != None and
                 ptpmsg.clockIdentity == self.gm.gmClockIdentity):
 
@@ -1002,13 +1002,13 @@ class PTP():
                 self.offsetFromMasterNanosMean = sum(self.offsetFromMasterNanosValues)/ \
                  (self.offsetFromMasterNanosValues.maxlen-self.offsetFromMasterNanosValues.count(0))
                 # print(f"self.offsetFromMasterMean (sec): {self.offsetFromMasterNanosMean/(10**9):.09f}")
-                
+
                 #in two step PTP - we send a DELAY_REQ, and await its response to figure out
                 #t3 and t4
 
                 if (ptpmsg.sequenceID % thinning == 0 ) and displayMsgs:
                     #print info every nth pkt
-                    print(f"PTP320 {ptpmsg.msg_type: <12}", #"z from:", address, 
+                    print(f"PTP320 {ptpmsg.msg_type: <12}", #"z from:", address,
                     f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
                     f"clockId: {ptpmsg.clockIdentity:10x}", #x = heX
                     f"seq-ID: {ptpmsg.sequenceID:08d}",
@@ -1019,10 +1019,10 @@ class PTP():
                         print(f"PTP320  with TLVs {ptpmsg.tlvSeq}")
                         self.parseTLVs(ptpmsg.tlvSeq)
 
-                        
+
         elif( ptpmsg.msg_type == MsgType.SIGNALLING ):
             if (ptpmsg.sequenceID % thinning == 0) and displayMsgs:
-                print("PTP320", ptpmsg.msg_type, 
+                print("PTP320", ptpmsg.msg_type,
                     "sequenceID: ", ptpmsg.sequenceID)
                 if(hasattr(ptpmsg, 'hasTLVs') and ptpmsg.hasTLVs == True and displayTLVs == True):
                     print(f"PTP320  with TLVs {ptpmsg.tlvSeq}")
@@ -1064,8 +1064,8 @@ class PTP():
             timenow = time.monotonic_ns()
             for s in readable:
                 (data, address) = s.recvfrom(180)
-                # print(address, data)
-                # s.sendto(client_data, client_address)
+                #print(address, data)
+                #s.sendto(client_data, client_address)
 
                 timestampArrival = time.monotonic_ns()
                 ptpmsg = PTPMsg(data)
@@ -1078,10 +1078,10 @@ class PTP():
                     s.sendto(delay_req, address)
             """
             9.2.6.12 ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES
-            Each protocol engine shall support a timeout mechanism defining the 
-            <announceReceiptTimeoutInterval>, with a value of portDS.announceReceiptTimeout 
+            Each protocol engine shall support a timeout mechanism defining the
+            <announceReceiptTimeoutInterval>, with a value of portDS.announceReceiptTimeout
             multiplied by the announceInterval (see 7.7.3.1).
-            The ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES event occurs at the expiration of this timeout 
+            The ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES event occurs at the expiration of this timeout
             plus a random number uniformly distributed in the range (0,1) announceIntervals.
             """
             if self.gm != None and ((timenow - self.lastAnnounceFromMasterNanos) * 10**-9) > \
@@ -1097,7 +1097,7 @@ class PTP():
         return self.PTPcorrection
 
     def reader(self, conn):
-        try:    
+        try:
             while True:
                 if conn.poll():
                     if(conn.recv() == 'gettime'):

@@ -7,6 +7,7 @@ __pycache__/
 events.bin
 data/
 Scripts/
+artwork*
 
 # C extensions
 *.so

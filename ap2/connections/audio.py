@@ -95,7 +95,7 @@ class RTPBuffer:
 
     def can_read(self):
         return self.read_index != -1
-        
+
     def next(self):
         # print("read   - %i %i" % (self.read_index, self.write_index))
         if self.read_index == -1:
@@ -286,7 +286,7 @@ class Audio:
             self.codec = av.codec.Codec('aac', 'r')
         elif'OPUS'   in self.af:
             self.codec = av.codec.Codec('opus', 'r')
-        #PCM - not sure which. Easy to fix. 
+        #PCM - not sure which. Easy to fix.
         elif'PCM' and '_16_' in self.af:
             self.codec = av.codec.Codec('pcm_s16be_planar', 'r')
         elif'PCM' and '_24_' in self.af:
@@ -440,7 +440,7 @@ class AudioBuffered(Audio):
                 print("player: !!! error while forwarding !!!")
                 finished = True
 
-    # player moves readindex in buffer 
+    # player moves readindex in buffer
     def play(self, rtspconn, serverconn):
         playing = False
         data_ready = False
@@ -475,8 +475,9 @@ class AudioBuffered(Audio):
                 message = rtspconn.recv()
                 if str.startswith(message, "play"):
                     self.anchorMonotonicTime = time.monotonic_ns()
-                    self.anchorRtpTime = int(str.split(message, "-")[1])
-
+                    msg_data = str.split(message, "-")
+                    self.anchorRtpTime = int(msg_data[1])
+                    anchorNetworkTime = int(msg_data[2])
                     playing = True
 
                 elif message == "pause":
@@ -498,7 +499,7 @@ class AudioBuffered(Audio):
                     time_offset_ms = self.get_time_offset(rtp.timestamp)
                     if i % 1000 == 0:
                         # pass
-                        print("player: offset is %i ms" % time_offset_ms)
+                        print(f"player: offset is {time_offset_ms} ms timestamp: {rtp.timestamp}")
                     if time_offset_ms >= (self.sample_delay * 1000):
                         # print("player: offset %i ms too big - seq = %i - sleeping %s sec" % (time_offset_ms, rtp.sequence_no, "{:05.2f}".format(time_offset_ms /1000)))
                         # time.sleep(time_offset_ms / 1000)
