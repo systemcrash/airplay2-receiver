@@ -24,7 +24,6 @@ from ap2.utils import get_volume, set_volume
 from ap2.pairing.hap import Hap, HAPSocket
 from ap2.connections.event import Event
 from ap2.connections.stream import Stream
-from ap2.connections.ptp_time import PTP
 from ap2.daap import parse_daap
 
 # No Auth - coreutils, PairSetupMfi
@@ -747,9 +746,6 @@ if __name__ == "__main__":
     IPV6 = ifen[ni.AF_INET6][0]["addr"].split("%")[0]
 
     setup_global_structs(args)
-
-    PTP.spawn(int(DEVICE_ID.replace(":",""), 16))
-
 
     print("Interface: %s" % IFEN)
     print("IPv4: %s" % IPV4)

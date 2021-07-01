@@ -1,13 +1,13 @@
-# DAAP Format 
+# DAAP Format
 # from http://daap.sourceforge.net/docs/index.html
 #
 # 0-3   Content Code
 # 4-7   Length
 # 8+    Data
-def parse_daap(frame): 
+def parse_daap(frame):
     offset = 8
 
-    print("DAAP FRAME", frame)
+    #print("DAAP FRAME", frame)
 
     def read_frame():
         nonlocal offset
@@ -20,7 +20,7 @@ def parse_daap(frame):
     def read_text_frame():
         return str(read_frame(), 'UTF-8')
 
-    if frame[0:4] == b'mlit': 
+    if frame[0:4] == b'mlit':
         # skip header
         while frame[offset] != 0:
             offset += 1

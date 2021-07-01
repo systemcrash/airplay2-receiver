@@ -739,6 +739,8 @@ class PTP():
         #count down nanos from last Announce - expires current GM
         self.lastAnnounceFromMasterNanos = 0
 
+        self.network_time_ns = 0
+        self.network_time_monotonic_ts = time.monotonic_ns()
 
 
     def promoteMaster(self,ptpmsg,reason):
@@ -871,6 +873,9 @@ class PTP():
             self.meanPathDelayNanos = ((self.t2_arr_nanos - self.t3_egress_nanos) + \
                 ( t4 - ( self.t1_ts_s*(10**9)) - self.t1_ts_ns ) - \
                 self.t1_corr - ptpmsg.correctionNanoseconds)/2
+
+            self.network_time_ns = t4 + self.meanPathDelayNanos
+            self.network_time_monotonic_ts = time.monotonic_ns()
 
             self.PTPcorrection = abs(self.meanPathDelayNanos) / (10**9)
             # print(f"Current mean path delay (sec): {self.PTPcorrection:.09f}")
@@ -1096,12 +1101,17 @@ class PTP():
     def get_ptp_master_correction(self):
         return self.PTPcorrection
 
+    def get_network_time_ns(self):
+        return self.network_time_ns + (time.monotonic_ns() - self.network_time_monotonic_ts)
+
     def reader(self, conn):
         try:
             while True:
                 if conn.poll():
                     if(conn.recv() == 'gettime'):
-                        conn.send( self.get_ptp_master_correction() )
+                        conn.send(self.get_network_time_ns())
+                    #    conn.send( self.get_ptp_master_correction() )
+
             # conn.close()
         except KeyboardInterrupt:
             pass
