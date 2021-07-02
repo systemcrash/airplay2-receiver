@@ -1,3 +1,17 @@
+This branch is an attempt to get PTP sync working, based on work from others, I try to cherry pick commits to keep credit
+
+So far it uses PTP to sync but it have a few issues:
+
+re-Syncs often causing some audio skips, however it does not drift, keeps quite well in sync.
+
+PTP principal clock (master in PTP terminology), seems to use mac address to select which one will be the principal, i.e. the lowest mac address is selected as principal
+This code does not implement PTP principal so it must be connected to another one, if your sender device mac address is bigger than this receiver, this branch will not work, you
+can try changing your network interface (e.g. wifi/ethernet)
+
+Also when the principal is changed (e.g. if a new peer is added to the group), then time also changes, this is because the "time" used is actually a device arbitrary time (usually device uptime). When this happens this code does not yet update the time properly and stops working too.
+
+Follows readme from forked repo
+
 # Experimental
 
 Very quick python implementation of AP2 protocol using **minimal
