@@ -903,22 +903,22 @@ class PTP():
             t4 = (ptpmsg.rcvTimestampSec*(10**9)) + ptpmsg.rcvTimestampNanoSec \
                 + self.offsetFromMasterNanos
             """
-            if ptpmsg.sequenceID % (thinning / 10) == 0:
-                print(f"PTP-correction (sec): {self.PTPcorrection:.09f}")
-                """
-                origin = ptpmsg.rcvTimestampSec + (ptpmsg.rcvTimestampNanoSec/(10**9)) +\
-                 self.PTPcorrection
-                print(f"Timetamp at origin now: {origin:.09f}")
-                """
+            # if ptpmsg.sequenceID % (thinning / 10) == 0:
+            #     print(f"PTP-correction (sec): {self.PTPcorrection:.09f}")
+            #     """
+            #     origin = ptpmsg.rcvTimestampSec + (ptpmsg.rcvTimestampNanoSec/(10**9)) +\
+            #      self.PTPcorrection
+            #     print(f"Timetamp at origin now: {origin:.09f}")
+            #     """
 
-            if ptpmsg.sequenceID % thinning == 0 and displayMsgs:
-                print(f"PTP320 {ptpmsg.msg_type: <12}",
-               f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
-               f"clockId: {ptpmsg.clockIdentity:016x}",
-               f"seq-ID: {ptpmsg.sequenceID:08d}",
-               f"correctionNanosec: {ptpmsg.correctionNanoseconds:09d}",
-               f"receiveTimestamp: {ptpmsg.rcvTimestampSec}.{ptpmsg.rcvTimestampNanoSec:09d}",
-               )
+            # if ptpmsg.sequenceID % thinning == 0 and displayMsgs:
+            #     print(f"PTP320 {ptpmsg.msg_type: <12}",
+            #    f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
+            #    f"clockId: {ptpmsg.clockIdentity:016x}",
+            #    f"seq-ID: {ptpmsg.sequenceID:08d}",
+            #    f"correctionNanosec: {ptpmsg.correctionNanoseconds:09d}",
+            #    f"receiveTimestamp: {ptpmsg.rcvTimestampSec}.{ptpmsg.rcvTimestampNanoSec:09d}",
+            #    )
         elif(ptpmsg.msg_type == MsgType.ANNOUNCE ):
             ptpfm = PTPForeignMaster(ptpmsg, timestampArrival)
             if not (self.getPortState() == PTPPortState.INITIALIZING or
@@ -967,26 +967,26 @@ class PTP():
                     if not self.useMasterPromoteAlgo:
                         self.compareMaster(ptpmsg)
 
-            if (ptpmsg.sequenceID % thinning == 0) and displayMsgs:
-                #varianceb10 = 2**((ptpmsg.gmClockVariance - 0x8000) / 2**8)
-                #varianceb2 = ((ptpmsg.gmClockVariance - 0x8000) / 2**8)
-                #i.e. gmVariance = (log2(variance)*2^8)+32768
-                #0x0000 => 2^-128 | 0xFFFF => 2^127.99
-                print(f"PTP320 {ptpmsg.msg_type: <12}",
-                f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
-                f"pri1/2: {ptpmsg.prio01}/{ptpmsg.prio02}",
-                f"gmClockClass: {ClkClass(ptpmsg.gmClockClass)}",
-                f"gmClockAccuracy: {GMCAccuracy(ptpmsg.gmClockAccuracy)}",
-                #f"gmClockVariance(s): {varianceb10:.04g}",
-                #f"gmClockVariance(s): 2^{varianceb2:.04g}",
-                f"gmClockId: {ptpmsg.gmClockIdentity:10x}",#x = heX
-                f"seq-ID: {ptpmsg.sequenceID:08d}",
-                #f"timeSource: {ptpmsg.timeSource}",
-                "Time:", ptpmsg.originTimestampSec )
+            # if (ptpmsg.sequenceID % thinning == 0) and displayMsgs:
+            #     #varianceb10 = 2**((ptpmsg.gmClockVariance - 0x8000) / 2**8)
+            #     #varianceb2 = ((ptpmsg.gmClockVariance - 0x8000) / 2**8)
+            #     #i.e. gmVariance = (log2(variance)*2^8)+32768
+            #     #0x0000 => 2^-128 | 0xFFFF => 2^127.99
+            #     print(f"PTP320 {ptpmsg.msg_type: <12}",
+            #     f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
+            #     f"pri1/2: {ptpmsg.prio01}/{ptpmsg.prio02}",
+            #     f"gmClockClass: {ClkClass(ptpmsg.gmClockClass)}",
+            #     f"gmClockAccuracy: {GMCAccuracy(ptpmsg.gmClockAccuracy)}",
+            #     #f"gmClockVariance(s): {varianceb10:.04g}",
+            #     #f"gmClockVariance(s): 2^{varianceb2:.04g}",
+            #     f"gmClockId: {ptpmsg.gmClockIdentity:10x}",#x = heX
+            #     f"seq-ID: {ptpmsg.sequenceID:08d}",
+            #     #f"timeSource: {ptpmsg.timeSource}",
+            #     "Time:", ptpmsg.originTimestampSec )
 
-                if(displayTLVs == True):
-                    print(f"PTP320  with PathTrace { [f'0x{addr:016x}' for addr in ptpmsg.tlvPathSequence] }" )
-                # print(f"processingOverhead for {ptpmsg.msg_type}:{processingOverhead:.9f}")
+            #     if(displayTLVs == True):
+            #         print(f"PTP320  with PathTrace { [f'0x{addr:016x}' for addr in ptpmsg.tlvPathSequence] }" )
+            #     # print(f"processingOverhead for {ptpmsg.msg_type}:{processingOverhead:.9f}")
 
         elif(ptpmsg.msg_type == MsgType.FOLLOWUP ): #
             #in Airplay(2) PreciseOriginTimestamp = device uptime.
@@ -1011,27 +1011,27 @@ class PTP():
                 #in two step PTP - we send a DELAY_REQ, and await its response to figure out
                 #t3 and t4
 
-                if (ptpmsg.sequenceID % thinning == 0 ) and displayMsgs:
-                    #print info every nth pkt
-                    print(f"PTP320 {ptpmsg.msg_type: <12}", #"z from:", address,
-                    f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
-                    f"clockId: {ptpmsg.clockIdentity:10x}", #x = heX
-                    f"seq-ID: {ptpmsg.sequenceID:08d}",
-                    f"correctionNanosec: {ptpmsg.correctionNanoseconds:09d}",
-                    f"PreciseTime: {ptpmsg.preciseOriginTimestampSec}.{ptpmsg.preciseOriginTimestampNanoSec:09d}")
+                # if (ptpmsg.sequenceID % thinning == 0 ) and displayMsgs:
+                #     #print info every nth pkt
+                #     print(f"PTP320 {ptpmsg.msg_type: <12}", #"z from:", address,
+                #     f"srcprt-ID: {ptpmsg.sourcePortID:05d}",
+                #     f"clockId: {ptpmsg.clockIdentity:10x}", #x = heX
+                #     f"seq-ID: {ptpmsg.sequenceID:08d}",
+                #     f"correctionNanosec: {ptpmsg.correctionNanoseconds:09d}",
+                #     f"PreciseTime: {ptpmsg.preciseOriginTimestampSec}.{ptpmsg.preciseOriginTimestampNanoSec:09d}")
 
-                    if(hasattr(ptpmsg, 'hasTLVs') and ptpmsg.hasTLVs == True and displayTLVs == True):
-                        print(f"PTP320  with TLVs {ptpmsg.tlvSeq}")
-                        self.parseTLVs(ptpmsg.tlvSeq)
+                #     if(hasattr(ptpmsg, 'hasTLVs') and ptpmsg.hasTLVs == True and displayTLVs == True):
+                #         print(f"PTP320  with TLVs {ptpmsg.tlvSeq}")
+                #         self.parseTLVs(ptpmsg.tlvSeq)
 
 
-        elif( ptpmsg.msg_type == MsgType.SIGNALLING ):
-            if (ptpmsg.sequenceID % thinning == 0) and displayMsgs:
-                print("PTP320", ptpmsg.msg_type,
-                    "sequenceID: ", ptpmsg.sequenceID)
-                if(hasattr(ptpmsg, 'hasTLVs') and ptpmsg.hasTLVs == True and displayTLVs == True):
-                    print(f"PTP320  with TLVs {ptpmsg.tlvSeq}")
-                    self.parseTLVs(ptpmsg.tlvSeq)
+        # elif( ptpmsg.msg_type == MsgType.SIGNALLING ):
+        #     if (ptpmsg.sequenceID % thinning == 0) and displayMsgs:
+        #         print("PTP320", ptpmsg.msg_type,
+        #             "sequenceID: ", ptpmsg.sequenceID)
+        #         if(hasattr(ptpmsg, 'hasTLVs') and ptpmsg.hasTLVs == True and displayTLVs == True):
+        #             print(f"PTP320  with TLVs {ptpmsg.tlvSeq}")
+        #             self.parseTLVs(ptpmsg.tlvSeq)
 
 
     def parseTLVs(self, tlvSeq):
@@ -1109,7 +1109,7 @@ class PTP():
             while True:
                 if conn.poll():
                     if(conn.recv() == 'gettime'):
-                        conn.send(self.get_network_time_ns())
+                        conn.send([self.network_time_ns, self.network_time_monotonic_ts])
                     #    conn.send( self.get_ptp_master_correction() )
 
             # conn.close()

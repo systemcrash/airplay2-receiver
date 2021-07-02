@@ -410,7 +410,14 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 plist = readPlistFromString(body)
                 if plist["rate"] == 1:
                     #todo add Frac
-                    self.server.streams[0].audio_connection.send(f'play-{plist["rtpTime"]}-{plist["networkTimeSecs"]}')
+                    networkTime = plist["networkTimeSecs"] * (10 ** 9)
+                    sample_bytes = plist["networkTimeFrac"].to_bytes(8, byteorder="big", signed=True)
+                    uint64_sample = int.from_bytes(sample_bytes, byteorder="big")
+                    nthFactor = 0.5 ** 64
+                    nanos = int(uint64_sample * nthFactor * (10 ** 9))
+                    networkTime += nanos
+                    networkTime += 0
+                    self.server.streams[0].audio_connection.send(f'play-{plist["rtpTime"]}-{networkTime}')
                 if plist["rate"] == 0:
                     self.server.streams[0].audio_connection.send("pause")
                 self.pp.pprint(plist)

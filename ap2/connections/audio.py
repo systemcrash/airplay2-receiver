@@ -410,6 +410,12 @@ class AudioBuffered(Audio):
         self.anchorMonotonicTime = None
         self.anchorRtpTime = None
 
+        DEVICE_ID = '9c:b6:d0:f2:3d:29'
+
+        ptp_p, ptp_pipe = PTP.spawn(int(DEVICE_ID.replace(":",""), 16))
+        self.ptp_pipe = ptp_pipe
+
+
     def get_time_offset(self, rtp_ts):
         if not self.anchorRtpTime:
             return 0
@@ -478,12 +484,9 @@ class AudioBuffered(Audio):
                     self.anchorMonotonicTime = time.monotonic_ns()
                     msg_data = str.split(message, "-")
                     self.anchorRtpTime = int(msg_data[1])
-                    self.anchorNetworkTime = int(msg_data[2])*(10 ** 9)
+                    self.anchorNetworkTime = int(msg_data[2])
+
                     playing = True
-
-                    DEVICE_ID = '9c:b6:d0:f2:3d:29'
-
-                    ptp_p, ptp_pipe = PTP.spawn(int(DEVICE_ID.replace(":",""), 16))
 
                 elif message == "pause":
                     playing = False
@@ -499,60 +502,45 @@ class AudioBuffered(Audio):
                     serverconn.send(message)
 
             if playing and data_ready:
-                rtp = self.rtp_buffer.next()
+                self.ptp_pipe.send('gettime')
+                if self.ptp_pipe.poll(10):
+                    network_time_ns, network_time_monotonic_ts = self.ptp_pipe.recv()
+                    network_time_ns += time.monotonic_ns() - network_time_monotonic_ts
+                else:
+                    return
 
-                if rtp:
-                    time_offset_ms = self.get_time_offset(rtp.timestamp)
-                    if i % 500 == 0:
-                        # pass
-                        # print(f"player: offset is {time_offset_ms} ms timestamp: {rtp.timestamp}")
-                        ptp_pipe.send('gettime')
-                        if ptp_pipe.poll(10):
-                            network_time_ns = ptp_pipe.recv()
+                while (True):
+                    rtp = self.rtp_buffer.next()
 
-                            rtptime_offset = rtp.timestamp - self.anchorRtpTime
-                            rtpTime_offset_ms = (1000 * rtptime_offset / self.sample_rate)
-                            nt_offset_ms = (network_time_ns - self.anchorNetworkTime) / (10 ** 6)
-                            rpt_ptp_offset_ms = rtpTime_offset_ms - nt_offset_ms
+                    if rtp:
+                        #time_offset_ms = self.get_time_offset(rtp.timestamp)
 
-                            # 0 = (1000 * (rtp.timestamp - self.anchorRtpTime) / self.sample_rate) - nt_offset_ms
-                            # nt_offset_ms = 1000 * (rtp.timestamp - self.anchorRtpTime) / self.sample_rate
-                            # 1000 * (rtp.timestamp - self.anchorRtpTime) / self.sample_rate = nt_offset_ms
-                            # rtp.timestamp - self.anchorRtpTime = nt_offset_ms * self.sample_rate / 1000
+                        rtptime_offset = rtp.timestamp - self.anchorRtpTime
+                        rtpTime_offset_ms = (1000 * rtptime_offset / self.sample_rate)
+                        nt_offset_ms = (network_time_ns - self.anchorNetworkTime) / (10 ** 6)
+                        time_offset_ms = rtpTime_offset_ms - nt_offset_ms - (self.sample_delay * 1000)
 
-                            target_rtp_timestamp = nt_offset_ms * self.sample_rate / 1000 + self.anchorRtpTime
+                        if i % 50 == 0:
+                            print(f"player: offset is {time_offset_ms} ms")
+                        if time_offset_ms >= 50:
+                            sleep_time = (self.sample_delay / 2) - 0.001
+                            print(f"player: offset {time_offset_ms} ms too big - seq = {rtp.sequence_no} - sleeping {sleep_time} sec")
+                            # time.sleep(time_offset_ms / 1000)
+                            time.sleep(sleep_time)
+                        elif time_offset_ms < -190:
 
-                            print(f"delta {rtp.timestamp} -  {target_rtp_timestamp} {rtp.timestamp - target_rtp_timestamp}")
-                            while rtp.timestamp > target_rtp_timestamp:
-                                # we are ahead, wait
-                                print('player: waiting')
-                                ptp_pipe.send('gettime')
-                                if ptp_pipe.poll(10):
-                                    network_time_ns = ptp_pipe.recv()
-                                nt_offset_ms = (network_time_ns - self.anchorNetworkTime) / (10 ** 6)
-                                target_rtp_timestamp = nt_offset_ms * self.sample_rate / 1000 + self.anchorRtpTime
+                            print("player: offset %i ms too low - seq = %i - sending ontime data request" % (time_offset_ms, rtp.sequence_no))
+                            # get another rtp?
+                            continue
+                            # # request on_time data message
+                            # serverconn.send("on_time_data_request")
+                            # data_ontime = False
 
-                            while rtp.timestamp < target_rtp_timestamp:
-                                # we are behind, skip
-                                print('skipping')
-                                rtp = self.rtp_buffer.next()
 
-                            print(f"player: offset is {time_offset_ms} ms timestamp: {rtp.timestamp} rpt_ptp_offset_ms: {rpt_ptp_offset_ms} tgt rtp: {target_rtp_timestamp}")
-                        else:
-                            print("timeout gettime")
-                    # if time_offset_ms >= (self.sample_delay * 1000):
-                    #     # print("player: offset %i ms too big - seq = %i - sleeping %s sec" % (time_offset_ms, rtp.sequence_no, "{:05.2f}".format(time_offset_ms /1000)))
-                    #     # time.sleep(time_offset_ms / 1000)
-                    #     time.sleep( (self.sample_delay / 2) - 0.001 )
-                    # elif time_offset_ms < -100:
-                    #     print("player: offset %i ms too low - seq = %i - sending ontime data request" % (time_offset_ms, rtp.sequence_no))
-                    #     # request on_time data message
-                    #     serverconn.send("on_time_data_request")
-                    #     data_ontime = False
-
-                    audio = self.process(rtp)
-                    self.sink.write(audio)
-                    i += 1
+                        audio = self.process(rtp)
+                        self.sink.write(audio)
+                        i += 1
+                        break
 
     # server moves write index in buffer
     # the exception to this rule is the buffer initialization (init call)
