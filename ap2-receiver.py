@@ -26,6 +26,8 @@ from ap2.connections.event import Event
 from ap2.connections.stream import Stream
 from ap2.daap import parse_daap
 
+from ap2.connections.ptp_time import PTP
+
 # No Auth - coreutils, PairSetupMfi
 # MFi Verify fail error after pair-setup[2/5]
 FEATURES = 0x88340405f8a00
@@ -124,11 +126,11 @@ def setup_global_structs(args):
 
     sonos_one_setup = {
             'eventPort': 0,  # AP2 receiver event server
-            'timingPort': 0,
-            'timingPeerInfo': {
-                'Addresses': [
-                    IPV4, IPV6],
-                'ID': IPV4}
+            # 'timingPort': 0,
+            # 'timingPeerInfo': {
+            #     'Addresses': [
+            #         IPV4, IPV6],
+            #     'ID': IPV4}
             }
 
     sonos_one_setup_data = {
@@ -292,7 +294,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 else:
                     print("Sending CONTROL/DATA:")
                     buff = 8388608 # determines how many CODEC frame size 1024 we can hold
-                    stream = Stream(plist["streams"][0], buff)
+                    stream = Stream(plist["streams"][0], buff, self.ptp_link)
                     self.server.streams.append(stream)
                     sonos_one_setup_data["streams"][0]["controlPort"] = stream.control_port
                     sonos_one_setup_data["streams"][0]["dataPort"] = stream.data_port
@@ -312,6 +314,13 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     self.send_header("CSeq", self.headers["CSeq"])
                     self.end_headers()
                     self.wfile.write(res)
+
+
+                if "timingProtocol" in plist:
+                    if plist['timingProtocol'] == 'PTP':
+                        print('PTP Startup')
+                        mac = int((ifen[ni.AF_LINK][0]["addr"]).replace(":", ""), 16)
+                        self.ptp_proc, self.ptp_link = PTP.spawn(mac)
                 return
         self.send_error(404)
 
@@ -409,7 +418,6 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
                 plist = readPlistFromString(body)
                 if plist["rate"] == 1:
-                    #todo add Frac
                     networkTime = plist["networkTimeSecs"] * (10 ** 9)
                     sample_bytes = plist["networkTimeFrac"].to_bytes(8, byteorder="big", signed=True)
                     uint64_sample = int.from_bytes(sample_bytes, byteorder="big")
@@ -455,6 +463,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
         # terminate the forked event_proc, otherwise a zombie process consumes 100% cpu
         self.event_proc.terminate()
+
+        #PTP tear-down
+        self.ptp_proc.terminate()
 
     def do_SETPEERS(self):
         print("SETPEERS %s" % self.path)
