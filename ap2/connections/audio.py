@@ -135,6 +135,8 @@ class RTPBuffer:
 
     def previous(self):
         self.read_index = self.decrement_index(self.read_index)
+        buffered_object = self.buffer_array[self.read_index]
+        return buffered_object
 
     def get_fullness(self):
         # get distance between read and write in relation to buff size
@@ -565,9 +567,12 @@ class AudioBuffered(Audio):
         if skip != 0:
             print(f"skipped {skip}")
 
-        if skip == 0 and rtp.timestamp - rtp_timestamp > (512 * 3):
-            self.rtp_buffer.previous()
-            print("going back")
+        back = 0
+        while skip == 0 and rtp.timestamp - rtp_timestamp > (512 * 3):
+            rtp = self.rtp_buffer.previous()
+            back += 1
+        if back > 0:
+            print(f"went back {back}")
 
         audio = self.process(rtp)
         return (audio, pyaudio.paContinue)
