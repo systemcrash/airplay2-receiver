@@ -133,6 +133,9 @@ class RTPBuffer:
 
         return buffered_object
 
+    def previous(self):
+        self.read_index = self.decrement_index(self.read_index)
+
     def get_fullness(self):
         # get distance between read and write in relation to buff size
         return (
@@ -295,7 +298,7 @@ class Audio:
     def init_audio_sink(self):
         codecLatencySec = 0
         self.pa = pyaudio.PyAudio()
-        self.use_callback = False
+        self.use_callback = True
 
         if self.use_callback:
             self.sink = self.pa.open(
@@ -304,6 +307,7 @@ class Audio:
                 rate=self.sample_rate,
                 output=True,
                 stream_callback=self.callback,
+                start=False,
             )
         else:
             self.sink = self.pa.open(
@@ -513,17 +517,58 @@ class AudioBuffered(Audio):
                 finished = True
 
     def callback(self, in_data, frame_count, time_info, status):
-        if frame_count != 1024:
-            print(f"callback invalid frame count {frame_count}")
-            return (None, pyaudio.paAbort)
+
+        self.ptp_link.send("get_ptp_master_nanos_timestamped")
+        if self.ptp_link.poll(1):
+            network_time_ns, network_time_monotonic_ts = self.ptp_link.recv()
+            time_monotonic_ns = time.monotonic_ns()
+            network_time_ns += time_monotonic_ns - network_time_monotonic_ts
+        else:
+            return
 
         rtp = self.rtp_buffer.next()
         if not rtp:
             print(f"callback {frame_count} no more data")
             return (None, pyaudio.paAbort)
-        print(
-            f"callback {frame_count} {rtp.timestamp} {time_info.output_buffer_dac_time}"
-        )
+
+        # player_time_offset = time_info.output_buffer_dac_time - self.sink_anchor
+
+        # rtptime_offset = rtp.timestamp - self.anchorRtpTime
+        # rtpTime_offset_ms = 1000 * rtptime_offset / self.sample_rate
+        # nt_offset_ms = (network_time_ns - self.anchorNetworkTime) / (10 ** 6)
+        # time_offset_ms = rtpTime_offset_ms - nt_offset_ms - self.sample_delay * 1000
+
+        # time_offset_ms = rtpTime_offset_ms - nt_offset_ms - self.sample_delay * 1000
+        # 0 = rtpTime_offset_ms - nt_offset_ms
+        # 0 = (1000 * rtptime_offset / self.sample_rate) - ((network_time_ns - self.anchorNetworkTime) / (10 ** 6))
+        # ((network_time_ns - self.anchorNetworkTime) / (10 ** 6)) = (1000 * rtptime_offset / self.sample_rate)
+        # (network_time_ns - self.anchorNetworkTime) / (10 ** 6) = 1000 * (rtp.timestamp - self.anchorRtpTime) / self.sample_rate
+        # 1000 * (rtp.timestamp - self.anchorRtpTime) / self.sample_rate = (network_time_ns - self.anchorNetworkTime) / (10 ** 6)
+        # rtp.timestamp - self.anchorRtpTime = ((network_time_ns - self.anchorNetworkTime) / (10 ** 6)) / 1000 * self.sample_rate
+        # rtp_timestamp = ((network_time_ns - self.anchorNetworkTime) / (10 ** 6)) / 1000 * self.sample_rate +  self.anchorRtpTime
+
+        dac_offset = time_info["output_buffer_dac_time"] - time_info["current_time"]
+
+        rtp_timestamp = (
+            (network_time_ns - self.anchorNetworkTime) / (10 ** 9) + dac_offset
+        ) * self.sample_rate + self.anchorRtpTime
+
+        # print(
+        #     f"callback {frame_count} {rtp.timestamp} {time_info['output_buffer_dac_time']} {time_info['current_time']} ts: {rtp_timestamp} dac offset {dac_offset}"
+        # )
+        skip = 0
+        while rtp_timestamp - rtp.timestamp > 1024:
+            rtp = self.rtp_buffer.next()
+            if rtp is None:
+                return
+            skip += 1
+        if skip != 0:
+            print(f"skipped {skip}")
+
+        if skip == 0 and rtp.timestamp - rtp_timestamp > (512 * 3):
+            self.rtp_buffer.previous()
+            print("going back")
+
         audio = self.process(rtp)
         return (audio, pyaudio.paContinue)
 
@@ -532,6 +577,7 @@ class AudioBuffered(Audio):
         playing = False
         data_ready = False
         data_ontime = True
+        self.ptp_link = ptp_link
         i = 0
         while True:
             if not playing:
@@ -543,13 +589,17 @@ class AudioBuffered(Audio):
             else:
                 server_timeout = 0
 
-            if self.rtp_buffer.can_read():
+            if not data_ready and self.rtp_buffer.get_fullness() > 0.2:
+                print(
+                    f"setting data ready at buffer fullness {self.rtp_buffer.get_fullness()}"
+                )
                 data_ready = True
 
             if serverconn.poll(server_timeout):
                 message = serverconn.recv()
                 if message == "data_ready":
                     data_ready = True
+                    print(f"setting data ready at from server")
                 elif message == "data_ontime_response":
                     print("player: ontime data response received")
                     ts = self.get_min_timestamp()
@@ -597,8 +647,7 @@ class AudioBuffered(Audio):
                 if self.use_callback:
                     if not self.sink.is_active():
                         print("starting stream")
-                        # self.sink.start_stream()
-
+                        self.sink.start_stream()
                     continue  # use callback
                 else:
                     ptp_link.send("get_ptp_master_nanos_timestamped")
@@ -629,8 +678,10 @@ class AudioBuffered(Audio):
                             nt_offset_ms = (
                                 network_time_ns - self.anchorNetworkTime
                             ) / (10 ** 6)
-                            time_offset_ms = (rtpTime_offset_ms - nt_offset_ms) - (
-                                self.sample_delay * 1000
+                            time_offset_ms = (
+                                rtpTime_offset_ms
+                                - nt_offset_ms
+                                - self.sample_delay * 1000
                             )
 
                             if i % 100 == 0:
