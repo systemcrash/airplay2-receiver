@@ -568,7 +568,7 @@ class AudioBuffered(Audio):
             print(f"skipped {skip}")
 
         back = 0
-        while skip == 0 and rtp.timestamp - rtp_timestamp > (512 * 3):
+        while skip == 0 and rtp.timestamp - rtp_timestamp > 1024:
             rtp = self.rtp_buffer.previous()
             back += 1
         if back > 0:
