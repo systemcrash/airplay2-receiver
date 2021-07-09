@@ -316,6 +316,47 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                          )
         self.end_headers()
 
+    def do_ANNOUNCE(self):
+        print("ANNOUNCE")
+        self.send_response(200)
+        self.send_header("Server", self.version_string())
+        self.send_header("CSeq", self.headers["CSeq"])
+        self.end_headers()
+
+        if self.headers["Content-Type"] == 'application/sdp':
+            content_len = int(self.headers["Content-Length"])
+            if content_len > 0:
+                body = self.rfile.read(content_len)
+                print(body)
+                self.send_response(200)
+
+        # Handle SDP HERE (Feat.Ft19RcvAudALAC)
+        """
+        Looks like (fpaeskey = fingerprint, aesiv = init vector):
+
+        v=0
+        o=AirTunes 15765229936760275803 0 IN IP4 192.168.19.123
+        s=AirTunes
+        i=Joe\xe2\x80\x99s iPhone
+        c=IN IP4 192.168.19.123
+        t=0 0
+        m=audio 0 RTP/AVP 96
+        a=rtpmap:96 AppleLossless
+        a=fmtp:96 352 0 16 40 10 14 2 255 0 0 44100
+        a=fpaeskey:RlBMWQECAQAAAAA8AAAAABFV1H1179Fe3EI0rJm4A2QAAAAQMbvIpZUM9vjx6ArKBifbanS34OkyFYKCtfdGWlWZUxiFWtJ5
+        a=aesiv:+tITK3u1IiBdl6/zERO6uQ==
+        a=min-latency:11025
+        a=max-latency:88200
+
+        fmtp(ALAC) --> type, frame len, version, bits, history mult, initial history, rice param, channels , maximum pkt run,
+            max frame size, ABR, sampleRate
+
+        SETUP rtsp://192.168.19.117/7745132139924965434
+        Transport: RTP/AVP/UDP;unicast;mode=record;timing_port=0;control_port=62994
+        ...
+
+        """
+
     def do_FLUSHBUFFERED(self):
         print("FLUSHBUFFERED")
         self.send_response(200)
