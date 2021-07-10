@@ -1,3 +1,20 @@
+This branch is an attempt to get PTP sync working, based on work from others, I try to cherry pick commits to keep credit
+
+So far it uses PTP to sync but it have a few issues:
+
+re-Syncs often causing some audio skips, however it does not drift, keeps quite well in sync.
+
+PTP Principal 
+TL;DR; 
+   This branch does not announce itself as a timmingPeer so another AirPlay peer has to do it (e.g. a Home Pod or the iDevice)
+
+TP principal clock (master in PTP terminology), seems to use mac address to select which one will be the principal, i.e. the lowest mac address is selected as principal
+This code does not implement PTP principal so it must be connected to another one.
+
+Also when the principal is changed (e.g. if a new peer is added to the group), then time also changes, this is because the "time" used is actually a device arbitrary time (usually device uptime). When this happens this code does not yet update the time properly and stops working too.
+
+Follows readme from forked repo
+
 # Experimental
 
 Very quick python implementation of AP2 protocol using **minimal
@@ -6,7 +23,10 @@ multi-room** features. For now it implements:
 - FairPlay (v3) authentication
 - Receiving of both REALTIME and BUFFERED Airplay2 audio streams
 - Airplay2 Service publication
-- Decoding of ALAC/44100/2 or AAC/44100/2
+- Decoding of all Airplay2 supported CODECs: ALAC, AAC, OPUS, PCM.
+ Ref: [here](https://emanuelecozzi.net/docs/airplay2/audio/) and 
+      [here](https://emanuelecozzi.net/docs/airplay2/rtsp/#setup)
+- Output latency compensation for sync with other Airplay receivers
 
 For now it does not implement:
  - MFi Authentication / FairPlay v2 (one of them is required by iTunes/Windows)

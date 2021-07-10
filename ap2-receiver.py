@@ -24,37 +24,40 @@ from ap2.utils import get_volume, set_volume
 from ap2.pairing.hap import Hap, HAPSocket
 from ap2.connections.event import Event
 from ap2.connections.stream import Stream
+from ap2.daap import parse_daap
+
+from ap2.connections.ptp_time import PTP
 
 # No Auth - coreutils, PairSetupMfi
 # MFi Verify fail error after pair-setup[2/5]
-FEATURES = 0x88340405f8a00
+FEATURES = 0x88340405F8A00
 # No Auth - HK and coreutils
 # Stops after pairing (setup [5/5] verify [2/2])with no supported auth error
-FEATURES = 0xc340405f8a00
+FEATURES = 0xC340405F8A00
 # No Auth = HK, coreutils, PairSetupMFi
 # MFi Verify fail error after pair-setup[2/5]
-FEATURES = 0x8c340405f8a00
+FEATURES = 0x8C340405F8A00
 # Mfi Auth - HK and coreutils
 # All encrypt after pairing (setup [5/5] verify [2/2])
-FEATURES = 0xc340445f8a00
+FEATURES = 0xC340445F8A00
 # FairPlay - HK and coreutils
 # Stops after pairing (setup [5/5] verify [2/2])with no supported auth error
-FEATURES = 0xc340405fca00
+FEATURES = 0xC340405FCA00
 # FairPlay - HK and coreutils and transient
 # fp-setup after pair-setup[2/5]
-FEATURES = 0x1c340405fca00
+FEATURES = 0x1C340405FCA00
 # MFi - HK and coreutils and transient
 # auth-setup after pair-setup[2/5]
-FEATURES = 0x1c340445f8a00
+FEATURES = 0x1C340445F8A00
 # No Auth - No enc - PairSetupMFi
 # Works!!
-FEATURES = 0x8030040780a00
+FEATURES = 0x8030040780A00
 # No Auth - No enc
 # No supported authentication types.
 # FEATURES = 0x30040780a00
 # FEATURES = 0x8030040780a00 | (1 << 27)
 
-FEATURES = 0x1c340405fca00
+FEATURES = 0x1C340405FCA00
 
 DEVICE_ID = None
 IPV4 = None
@@ -67,6 +70,7 @@ HTTP_CT_PARAM = "text/parameters"
 HTTP_CT_IMAGE = "image/jpeg"
 HTTP_CT_DMAP = "application/x-dmap-tagged"
 
+
 def setup_global_structs(args):
     global sonos_one_info
     global sonos_one_setup
@@ -77,88 +81,96 @@ def setup_global_structs(args):
     sonos_one_info = {
         # 'OSInfo': 'Linux 3.10.53',
         # 'PTPInfo': 'OpenAVNU ArtAndLogic-aPTP-changes a5d7f94-0.0.1',
-        'audioLatencies': [   {   'inputLatencyMicros': 0,
-                                  'outputLatencyMicros': 400000,
-                                  'type': 100},
-                              {   'audioType': 'default',
-                                  'inputLatencyMicros': 0,
-                                  'outputLatencyMicros': 400000,
-                                  'type': 100},
-                              {   'audioType': 'media',
-                                  'inputLatencyMicros': 0,
-                                  'outputLatencyMicros': 400000,
-                                  'type': 100},
-                              {   'audioType': 'media',
-                                  'inputLatencyMicros': 0,
-                                  'outputLatencyMicros': 400000,
-                                  'type': 102}],
+        "audioLatencies": [
+            {"inputLatencyMicros": 0, "outputLatencyMicros": 400000, "type": 100},
+            {
+                "audioType": "default",
+                "inputLatencyMicros": 0,
+                "outputLatencyMicros": 400000,
+                "type": 100,
+            },
+            {
+                "audioType": "media",
+                "inputLatencyMicros": 0,
+                "outputLatencyMicros": 400000,
+                "type": 100,
+            },
+            {
+                "audioType": "media",
+                "inputLatencyMicros": 0,
+                "outputLatencyMicros": 400000,
+                "type": 102,
+            },
+        ],
         # 'build': '16.0',
-        'deviceID': DEVICE_ID,
-        'features': FEATURES,
+        "deviceID": DEVICE_ID,
+        "features": FEATURES,
         # 'features': 496155769145856, # Sonos One
         # 'firmwareBuildDate': 'Nov  5 2019',
         # 'firmwareRevision': '53.3-71050',
         # 'hardwareRevision': '1.21.1.8-2',
-        'keepAliveLowPower': True,
-        'keepAliveSendStatsAsBody': True,
-        'manufacturer': 'Sonos',
-        'model': 'One',
-        'name': 'Camera da letto',
-        'nameIsFactoryDefault': False,
-        'pi': 'ba5cb8df-7f14-4249-901a-5e748ce57a93', # UUID generated casually..
-        'protocolVersion': '1.1',
-        'sdk': 'AirPlay;2.0.2',
-        'sourceVersion': '366.0',
-        'statusFlags': 4,
+        "keepAliveLowPower": True,
+        "keepAliveSendStatsAsBody": True,
+        "manufacturer": "Sonos",
+        "model": "One",
+        "name": "Camera da letto",
+        "nameIsFactoryDefault": False,
+        "pi": "ba5cb8df-7f14-4249-901a-5e748ce57a93",  # UUID generated casually..
+        "protocolVersion": "1.1",
+        "sdk": "AirPlay;2.0.2",
+        "sourceVersion": "366.0",
+        "statusFlags": 4,
         # 'statusFlags': 0x404 # Sonos One
-        }
+    }
 
     if DISABLE_VM:
         volume = 0
-    else: 
+    else:
         volume = get_volume()
     second_stage_info = {
         "initialVolume": volume,
-        }
+    }
 
     sonos_one_setup = {
-            'eventPort': 0,  # AP2 receiver event server
-            'timingPort': 0,
-            'timingPeerInfo': {
-                'Addresses': [
-                    IPV4, IPV6], 
-                'ID': IPV4}
-            }
+        "eventPort": 0,  # AP2 receiver event server
+        # 'timingPort': 0,
+        # 'timingPeerInfo': {
+        #     'Addresses': [
+        #         IPV4, IPV6],
+        #     'ID': IPV4}
+    }
 
     sonos_one_setup_data = {
-            'streams': [
-                {
-                    'type': 96, 
-                    'dataPort': 0, # AP2 receiver data server 
-                    'controlPort': 0 # AP2 receiver control server
-                    }
-                ]
+        "streams": [
+            {
+                "type": 96,
+                "dataPort": 0,  # AP2 receiver data server
+                "controlPort": 0,  # AP2 receiver control server
             }
+        ]
+    }
 
     mdns_props = {
-            "srcvers": SERVER_VERSION,
-            "deviceid": DEVICE_ID,
-            "features": "%s,%s" % (hex(FEATURES & 0xffffffff), hex(FEATURES >> 32 & 0xffffffff)),
-            "flags": "0x4",
-            # "name": "GINO", # random
-            "model": "Airplay2-Receiver",  # random
-            # "manufacturer": "Pino", # random
-            # "serialNumber": "01234xX321", # random
-            "protovers": "1.1",
-            "acl": "0",
-            "rsf": "0x0",
-            "fv": "p20.78000.12",
-            "pi": "5dccfd20-b166-49cc-a593-6abd5f724ddb", # UUID generated casually
-            "gid": "5dccfd20-b166-49cc-a593-6abd5f724ddb", # UUID generated casually
-            "gcgl": "0",
-            # "vn": "65537",
-            "pk": "de352b0df39042e201d31564049023af58a106c6d904b74a68aa65012852997f"
-            }
+        "srcvers": SERVER_VERSION,
+        "deviceid": DEVICE_ID,
+        "features": "%s,%s"
+        % (hex(FEATURES & 0xFFFFFFFF), hex(FEATURES >> 32 & 0xFFFFFFFF)),
+        "flags": "0x4",
+        # "name": "GINO", # random
+        "model": "Airplay2-Receiver",  # random
+        # "manufacturer": "Pino", # random
+        # "serialNumber": "01234xX321", # random
+        "protovers": "1.1",
+        "acl": "0",
+        "rsf": "0x0",
+        "fv": "p20.78000.12",
+        "pi": "5dccfd20-b166-49cc-a593-6abd5f724ddb",  # UUID generated casually
+        "gid": "5dccfd20-b166-49cc-a593-6abd5f724ddb",  # UUID generated casually
+        "gcgl": "0",
+        # "vn": "65537",
+        "pk": "de352b0df39042e201d31564049023af58a106c6d904b74a68aa65012852997f",
+    }
+
 
 class AP2Handler(http.server.BaseHTTPRequestHandler):
 
@@ -177,7 +189,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
             if code in self.responses:
                 message = self.responses[code][0]
             else:
-                message = b''
+                message = b""
 
         response = "%s %d %s\r\n" % (self.protocol_version, code, message)
         self.wfile.write(response.encode())
@@ -200,7 +212,10 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
-        self.send_header("Public", "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, FLUSHBUFFERED, TEARDOWN, OPTIONS, POST, GET, PUT") 
+        self.send_header(
+            "Public",
+            "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, FLUSHBUFFERED, TEARDOWN, OPTIONS, POST, GET, PUT, SETRATEANCHORTIME",
+        )
         self.end_headers()
 
     def do_FLUSHBUFFERED(self):
@@ -221,7 +236,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     flush_from_seq = plist["flushFromSeq"]
                 if "flushUntilSeq" in plist:
                     flush_until_seq = plist["flushUntilSeq"]
-                    self.server.streams[0].audio_connection.send("flush_from_until_seq-%i-%i" % (flush_from_seq, flush_until_seq))
+                    self.server.streams[0].audio_connection.send(
+                        "flush_from_until_seq-%i-%i" % (flush_from_seq, flush_until_seq)
+                    )
                 self.pp.pprint(plist)
 
     def do_POST(self):
@@ -275,9 +292,10 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 self.pp.pprint(plist)
                 if "streams" not in plist:
                     print("Sending EVENT:")
-                    event_port, self.event_proc = Event.spawn()
-                    sonos_one_setup["eventPort"] = event_port
-                    print("[+] eventPort=%d" % event_port)
+                    if self.server.event_proc is None:
+                        event_port, self.server.event_proc = Event.spawn()
+                        sonos_one_setup["eventPort"] = event_port
+                    print("[+] eventPort=%d" % sonos_one_setup["eventPort"])
 
                     self.pp.pprint(sonos_one_setup)
                     res = writePlistToString(sonos_one_setup)
@@ -290,16 +308,23 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(res)
                 else:
                     print("Sending CONTROL/DATA:")
-
-                    stream = Stream(plist["streams"][0])
+                    buff = (
+                        8388608  # determines how many CODEC frame size 1024 we can hold
+                    )
+                    stream = Stream(plist["streams"][0], buff, self.server.ptp_link)
                     self.server.streams.append(stream)
-                    sonos_one_setup_data["streams"][0]["controlPort"] = stream.control_port
+                    sonos_one_setup_data["streams"][0][
+                        "controlPort"
+                    ] = stream.control_port
                     sonos_one_setup_data["streams"][0]["dataPort"] = stream.data_port
 
-                    print("[+] controlPort=%d dataPort=%d" % (stream.control_port, stream.data_port))
+                    print(
+                        "[+] controlPort=%d dataPort=%d"
+                        % (stream.control_port, stream.data_port)
+                    )
                     if stream.type == Stream.BUFFERED:
                         sonos_one_setup_data["streams"][0]["type"] = stream.type
-                        sonos_one_setup_data["streams"][0]["audioBufferSize"] = 8388608
+                        sonos_one_setup_data["streams"][0]["audioBufferSize"] = buff
 
                     self.pp.pprint(sonos_one_setup_data)
                     res = writePlistToString(sonos_one_setup_data)
@@ -311,6 +336,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     self.send_header("CSeq", self.headers["CSeq"])
                     self.end_headers()
                     self.wfile.write(res)
+
+                if "timingProtocol" in plist:
+                    if plist["timingProtocol"] == "PTP":
+                        if self.server.ptp_proc is None:
+                            print("PTP Startup")
+                            mac = int(
+                                (ifen[ni.AF_LINK][0]["addr"]).replace(":", ""), 16
+                            )
+                            self.server.ptp_proc, self.server.ptp_link = PTP.spawn(mac)
+                        else:
+                            print("PTP reusing")
                 return
         self.send_error(404)
 
@@ -335,14 +371,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         if DISABLE_VM:
             res = b"volume: 0" + b"\r\n"
         else:
-            res = b"\r\n".join(b"%s: %s" % (k, v) for k, v in params_res.items()) + b"\r\n"
+            res = (
+                b"\r\n".join(b"%s: %s" % (k, v) for k, v in params_res.items())
+                + b"\r\n"
+            )
         self.send_response(200)
         self.send_header("Content-Length", len(res))
         self.send_header("Content-Type", HTTP_CT_PARAM)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
-        hexdump(res);
+        hexdump(res)
         self.wfile.write(res)
 
     def do_SET_PARAMETER(self):
@@ -371,14 +410,15 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         elif content_type == HTTP_CT_IMAGE:
             if content_len > 0:
                 fname = None
-                with tempfile.NamedTemporaryFile(prefix="artwork", dir=".", delete=False) as f:
+                with tempfile.NamedTemporaryFile(
+                    prefix="artwork", dir=".", delete=False, suffix=".jpg"
+                ) as f:
                     f.write(self.rfile.read(content_len))
                     fname = f.name
                 print("Artwork saved to %s" % fname)
         elif content_type == HTTP_CT_DMAP:
             if content_len > 0:
-                self.rfile.read(content_len)
-                print("Now plaing DAAP info. (need a daap parser here)")
+                parse_daap(self.rfile.read(content_len))
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
@@ -409,7 +449,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
                 plist = readPlistFromString(body)
                 if plist["rate"] == 1:
-                    self.server.streams[0].audio_connection.send("play-%i" % plist["rtpTime"])
+                    networkTime = plist["networkTimeSecs"] * (10 ** 9)
+                    sample_bytes = plist["networkTimeFrac"].to_bytes(
+                        8, byteorder="big", signed=True
+                    )
+                    uint64_sample = int.from_bytes(sample_bytes, byteorder="big")
+                    nthFactor = 0.5 ** 64
+                    nanos = int(uint64_sample * nthFactor * (10 ** 9))
+                    networkTime += nanos
+                    self.server.streams[0].audio_connection.send(
+                        f'play-{plist["rtpTime"]}-{networkTime}'
+                    )
                 if plist["rate"] == 0:
                     self.server.streams[0].audio_connection.send("pause")
                 self.pp.pprint(plist)
@@ -441,12 +491,15 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         self.end_headers()
-        
+
         # Erase the hap() instance, otherwise reconnects fail
         self.server.hap = None
 
-        # terminate the forked event_proc, otherwise a zombie process consumes 100% cpu
-        self.event_proc.terminate()
+        # # terminate the forked event_proc, otherwise a zombie process consumes 100% cpu
+        # self.event_proc.terminate()
+
+        # PTP tear-down
+        # self.ptp_proc.terminate()
 
     def do_SETPEERS(self):
         print("SETPEERS %s" % self.path)
@@ -483,8 +536,14 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                         iplist = readPlistFromString(p)
                         newin.append(iplist)
                     plist["params"]["mrSupportedCommandsFromSender"] = newin
-                if "params" in plist["params"] and "kMRMediaRemoteNowPlayingInfoArtworkData" in plist["params"]["params"]:
-                    plist["params"]["params"]["kMRMediaRemoteNowPlayingInfoArtworkData"] = "<redacted ..too long>"
+                if (
+                    "params" in plist["params"]
+                    and "kMRMediaRemoteNowPlayingInfoArtworkData"
+                    in plist["params"]["params"]
+                ):
+                    plist["params"]["params"][
+                        "kMRMediaRemoteNowPlayingInfoArtworkData"
+                    ] = "<redacted ..too long>"
                 self.pp.pprint(plist)
         self.send_response(200)
         self.send_header("Server", self.version_string())
@@ -499,7 +558,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
                 plist = readPlistFromString(body)
                 # feedback logs are pretty much noise...
-                #self.pp.pprint(plist)
+                # self.pp.pprint(plist)
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
@@ -619,7 +678,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     self.send_error(404)
                     return
             else:
-                print("Content-Type: %s | Not implemented" % self.headers["Content-Type"])
+                print(
+                    "Content-Type: %s | Not implemented" % self.headers["Content-Type"]
+                )
                 self.send_error(404)
         else:
             res = writePlistToString(sonos_one_info)
@@ -632,40 +693,44 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(res)
 
     def upgrade_to_encrypted(self, shared_key):
-        self.request = self.server.upgrade_to_encrypted(
-                                    self.client_address,
-                                    shared_key)
+        self.request = self.server.upgrade_to_encrypted(self.client_address, shared_key)
         self.connection = self.request
-        self.rfile = self.connection.makefile('rb', self.rbufsize)
-        self.wfile = self.connection.makefile('wb')
+        self.rfile = self.connection.makefile("rb", self.rbufsize)
+        self.wfile = self.connection.makefile("wb")
         self.is_encrypted = True
         print("----- ENCRYPTED CHANNEL -----")
+
 
 def register_mdns(receiver_name):
     addresses = []
     for ifen in ni.interfaces():
         ifenaddr = ni.ifaddresses(ifen)
         if ni.AF_INET in ifenaddr:
-            addresses.append(socket.inet_pton(ni.AF_INET,
-                ifenaddr[ni.AF_INET][0]["addr"]))
+            addresses.append(
+                socket.inet_pton(ni.AF_INET, ifenaddr[ni.AF_INET][0]["addr"])
+            )
         if ni.AF_INET6 in ifenaddr:
-            addresses.append(socket.inet_pton(ni.AF_INET6,
-                ifenaddr[ni.AF_INET6][0]["addr"].split("%")[0]))
+            addresses.append(
+                socket.inet_pton(
+                    ni.AF_INET6, ifenaddr[ni.AF_INET6][0]["addr"].split("%")[0]
+                )
+            )
 
     info = ServiceInfo(
-            "_airplay._tcp.local.",
-            "%s._airplay._tcp.local." % receiver_name,
-            # addresses=[socket.inet_aton("127.0.0.1")],
-            addresses=addresses,
-            port=7000,
-            properties=mdns_props,
-            server="%s.local." % receiver_name,
-            )
+        "_airplay._tcp.local.",
+        "%s._airplay._tcp.local." % receiver_name,
+        # addresses=[socket.inet_aton("127.0.0.1")],
+        addresses=addresses,
+        port=7000,
+        properties=mdns_props,
+        server="%s.local." % receiver_name,
+    )
 
     zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
     zeroconf.register_service(info)
     print("mDNS service registered")
     return (zeroconf, info)
+
 
 def unregister_mdns(zeroconf, info):
     print("Unregistering...")
@@ -675,7 +740,7 @@ def unregister_mdns(zeroconf, info):
 
 def get_free_port():
     free_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    free_socket.bind(('0.0.0.0', 0))
+    free_socket.bind(("0.0.0.0", 0))
     free_socket.listen(5)
     port = free_socket.getsockname()[1]
     free_socket.close()
@@ -683,15 +748,16 @@ def get_free_port():
 
 
 class AP2Server(socketserver.TCPServer):
-
     def __init__(self, addr_port, handler):
         super().__init__(addr_port, handler)
         self.connections = {}
         self.hap = None
         self.enc_layer = False
         self.streams = []
+        self.event_proc = None
+        self.ptp_proc = None
 
-    #Override
+    # Override
     def get_request(self):
         client_socket, client_addr = super().get_request()
         print("Got connection with %s:%d" % client_addr)
@@ -704,13 +770,22 @@ class AP2Server(socketserver.TCPServer):
         self.connections[client_address] = hap_socket
         return hap_socket
 
+
 if __name__ == "__main__":
 
     multiprocessing.set_start_method("spawn")
-    parser = argparse.ArgumentParser(prog='AirPlay 2 receiver')
+    parser = argparse.ArgumentParser(prog="AirPlay 2 receiver")
     parser.add_argument("-m", "--mdns", required=True, help="mDNS name to announce")
-    parser.add_argument("-n", "--netiface", required=True, help="Network interface to bind to")
-    parser.add_argument("-nv", "--no-volume-management", required=False, help="Disable volume management", action='store_true')
+    parser.add_argument(
+        "-n", "--netiface", required=True, help="Network interface to bind to"
+    )
+    parser.add_argument(
+        "-nv",
+        "--no-volume-management",
+        required=False,
+        help="Disable volume management",
+        action="store_true",
+    )
     parser.add_argument("-f", "--features", required=False, help="Features")
 
     args = parser.parse_args()
@@ -727,8 +802,17 @@ if __name__ == "__main__":
                 exit(-1)
     except Exception:
         print("[!] Network interface not found")
+        print("Available network interfaces:")
+        for p in ni.interfaces():
+            print(p)
+            addrs = ni.ifaddresses(p)
+            for a in addrs:
+                # print('  ' + str(a))
+                for ak in addrs[a]:
+                    for akx in ak:
+                        if str(akx) == "addr":
+                            print("    " + str(akx) + ": " + str(ak[akx]))
         exit(-1)
-
 
     DEVICE_ID = ifen[ni.AF_LINK][0]["addr"]
     IPV4 = ifen[ni.AF_INET][0]["addr"]
