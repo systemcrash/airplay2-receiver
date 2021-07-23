@@ -9,6 +9,7 @@ import av
 import numpy
 import pyaudio
 from Crypto.Cipher import ChaCha20_Poly1305
+from Crypto.Cipher import AES
 from av.audio.format import AudioFormat
 
 from ..utils import get_logger, get_free_tcp_socket, get_free_udp_socket
@@ -237,9 +238,14 @@ class Audio:
 
         print("Negotiated audio format: ", AirplayAudFmt(audio_format))
 
-    def __init__(self, session_key, audio_format, buff_size):
+    def __init__(self, session_key, audio_format, buff_size, session_iv=None):
         self.audio_format = audio_format
-        self.session_key = session_key
+        if session_iv:
+            self.session_key, self.session_iv = session_key, session_iv
+        else:
+            self.session_key = session_key
+        # print(len(session_key))
+        self.rsa = True if len(session_key) == 16 else False
         self.rtp_buffer = RTPBuffer(buff_size)
         self.set_audio_params(self, audio_format)
 
@@ -330,9 +336,22 @@ class Audio:
         print(f"Total sample_delay (sec): {self.sample_delay:0.5f}")
 
     def decrypt(self, rtp):
-        c = ChaCha20_Poly1305.new(key=self.session_key, nonce=rtp.nonce)
-        c.update(rtp.aad)
-        data = c.decrypt_and_verify(rtp.payload, rtp.tag)
+        data = b''
+        if self.rsa:
+            try:
+                # Decrypt using RSA key
+                # print(self.session_iv)
+                c  = AES.new(key=self.session_key, mode=AES.MODE_CBC, iv=self.session_iv)
+                data = c.decrypt(rtp.payload)
+            except KeyError:
+                print('Bad AES key')
+            except ValueError:
+                print('Bad AES IV')
+                pass
+        else:
+            c = ChaCha20_Poly1305.new(key=self.session_key, nonce=rtp.nonce)
+            c.update(rtp.aad)
+            data = c.decrypt_and_verify(rtp.payload, rtp.tag)
         return data
 
     def handle(self, rtp):
@@ -347,9 +366,13 @@ class Audio:
     def process(self, rtp):
         data = self.decrypt(rtp)
         packet = av.packet.Packet(data)
-        for frame in self.codecContext.decode(packet):
-            frame = self.resampler.resample(frame)
-            return frame.planes[0].to_bytes()
+        try:
+            for frame in self.codecContext.decode(packet):
+                frame = self.resampler.resample(frame)
+                return frame.planes[0].to_bytes()
+        except av.error.InvalidDataError:
+            pass
+            return b'\x00'
 
     def run(self, parent_reader_connection):
         # This pipe is between player (read data) and server (write data)
@@ -361,8 +384,8 @@ class Audio:
         player_thread.start()
 
     @classmethod
-    def spawn(cls, session_key, audio_format, buff):
-        audio = cls(session_key, audio_format, buff)
+    def spawn(cls, session_key, audio_format, buff, iv):
+        audio = cls(session_key, audio_format, buff, iv)
         # This pipe is reachable from receiver
         parent_reader_connection, audio.audio_connection = multiprocessing.Pipe()
         mainprocess = multiprocessing.Process(target=audio.run, args=(parent_reader_connection,))
@@ -373,8 +396,8 @@ class Audio:
 
 class AudioRealtime(Audio):
 
-    def __init__(self, session_key, audio_format, buff):
-        super(AudioRealtime, self).__init__(session_key, audio_format, buff)
+    def __init__(self, session_key, audio_format, buff, iv):
+        super(AudioRealtime, self).__init__(session_key, audio_format, buff, iv)
         self.socket = get_free_udp_socket()
         self.port = self.socket.getsockname()[1]
 

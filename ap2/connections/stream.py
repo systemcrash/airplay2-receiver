@@ -19,10 +19,11 @@ class Stream:
         buff = buff // self.frames_packet
         self.control_port, self.control_proc = Control.spawn()
         if self.type == Stream.REALTIME:
+            self.session_iv = stream["shiv"]
             self.server_control = stream["controlPort"]
             self.latency_min = stream["latencyMin"]
             self.latency_max = stream["latencyMax"]
-            self.data_port, self.data_proc, audio_connection = AudioRealtime.spawn(self.session_key, self.audio_format, buff)
+            self.data_port, self.data_proc, audio_connection = AudioRealtime.spawn(self.session_key, self.audio_format, buff, self.session_iv)
         elif self.type == Stream.BUFFERED:
             self.data_port, self.data_proc, self.audio_connection = AudioBuffered.spawn(self.session_key, self.audio_format, buff)
 
