@@ -415,10 +415,6 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
     def do_FLUSHBUFFERED(self):
         SCR_LOG.info(f'{self.command}: {self.path}')
-        self.send_response(200)
-        self.send_header("Server", self.version_string())
-        self.send_header("CSeq", self.headers["CSeq"])
-        self.end_headers()
 
         if self.headers["Content-Type"] == HTTP_CT_BPLIST:
             content_len = int(self.headers["Content-Length"])
@@ -426,13 +422,28 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 body = self.rfile.read(content_len)
 
                 plist = readPlistFromString(body)
-                fr = 0
-                if "flushFromSeq" in plist:
+                fr = 0  # Assume 0 when flush req lacks flushFrom*
+                if "flushFromSeq" in plist:  # inclusive
                     fr = plist["flushFromSeq"]
+                elif "flushFromTS" in plist:  # inclusive
+                    fr = plist["flushFromTS"]
                 if "flushUntilSeq" in plist:
-                    to = plist["flushUntilSeq"]
+                    to = plist["flushUntilSeq"]  # exclusive
                     self.server.streams[0].audio_connection.send(f"flush_from_until_seq-{fr}-{to}")
+                elif "flushUntilTS" in plist:
+                    to = plist["flushUntilTS"]  # inclusive
+                    self.server.streams[0].audio_connection.send(f"flush_from_until_ts-{fr}-{to}")
                 SCR_LOG.debug(self.pp.pformat(plist))
+                rtp_until_ts = 0
+                if "flushUntilTS" in plist:
+                    # TODO: get RTP-TS from audio_connection
+                    rtp_until_ts = int(plist["flushUntilTS"])  # inclusive
+
+        self.send_response(200)
+        self.send_header("Server", self.version_string())
+        self.send_header("CSeq", self.headers["CSeq"])
+        self.send_header("RTP-Info", rtp_until_ts)
+        self.end_headers()
 
     def do_POST(self):
         self.dispatch()
