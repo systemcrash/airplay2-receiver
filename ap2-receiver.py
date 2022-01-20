@@ -947,7 +947,15 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
+        # self.end_headers()
+        remote_reply = b'\x00\x00\x00Jrply\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01aU\xc3\xe0\x00\x00\x00\x00bplist00\xd0\x08\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\t'
+        res = writePlistToString(remote_reply)
+        self.logger.debug(res)
+        self.send_header("Content-Length", len(res))
+        self.send_header("Content-Type", HTTP_CT_BPLIST)
         self.end_headers()
+        self.wfile.write(res)
+
 
     def handle_feedback(self):
         self.handle_generic(feedback=True)
