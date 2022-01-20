@@ -210,6 +210,7 @@ class StatusFlags(IntFlag):
             self.AudioLink
             # we must handle stream type 130 for RCR
             | self.RemoteControlRelay
+            # | self.TightSyncIsGroupLeader
         )
 
     def getHKACFlag(self):

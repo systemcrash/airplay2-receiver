@@ -28,6 +28,29 @@ LTSK_FILE = "ltsk.txt"
 DEV_PROPS = "device_properties.txt"
 ACCESSORY_SECRET = "accessory-secret"
 
+# Pairing Keys Map
+PKM = {
+    'PSCS': [b'Pair-Setup-Controller-Sign-Salt', b'Pair-Setup-Controller-Sign-Info', b''],
+
+    'PSAS': [b'Pair-Setup-Accessory-Sign-Salt', b'Pair-Setup-Accessory-Sign-Info', b'PS-Msg06'],
+
+    'PSM05': [b'Pair-Setup-Encrypt-Salt', b'Pair-Setup-Encrypt-Info', b'PS-Msg05'],
+    'PSM06': [b'Pair-Setup-Encrypt-Salt', b'Pair-Setup-Encrypt-Info', b'PS-Msg06'],
+
+    'PVEM02': [b'Pair-Verify-Encrypt-Salt', b'Pair-Verify-Encrypt-Info', b'PV-Msg02'],
+    'PVEM03': [b'Pair-Verify-Encrypt-Salt', b'Pair-Verify-Encrypt-Info', b'PV-Msg03'],
+
+    'CR': [b'Control-Salt', b'Control-Read-Encryption-Key', b''],
+    'CW': [b'Control-Salt', b'Control-Write-Encryption-Key', b''],
+
+    'ER': [b'Events-Salt', b'Events-Read-Encryption-Key', b''],
+    'EW': [b'Events-Salt', b'Events-Write-Encryption-Key', b''],
+
+    'DR': [b'DataStream-Salt', b'DataStream-Output-Encryption-Key', b''],
+    'DW': [b'DataStream-Salt', b'DataStream-Input-Encryption-Key', b''],
+
+}
+
 
 class MFiUnhandledException(Exception):
     pass
@@ -1356,13 +1379,27 @@ class HAPSocket:
     MAX_BLOCK_LENGTH = 0x400
     LENGTH_LENGTH = 2
 
-    CIPHER_SALT = b"Control-Salt"
-    OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"
-    IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
+    CIPHER_SALT = b"Control-Salt"  # PKM['CR'][0]
+    OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"  # PKM['CR'][1]
+    IN_CIPHER_INFO = b"Control-Write-Encryption-Key"  # PKM['CW'][1]
 
-    def __init__(self, sock, shared_key):
+    def __init__(self, sock, shared_key, pkm='CTRL'):
         """Initialise from the given socket."""
         self.socket = sock
+        print('HAPSocket!')
+        if pkm == 'EVENT':  # i.e. if Event Type
+            print('HAP EVENT channel')
+            self.OUT_CIPHER_INFO = PKM['ER'][1]
+            self.IN_CIPHER_INFO = PKM['EW'][1]
+            self.CIPHER_SALT = PKM['ER'][0]
+        elif pkm == 'CTRL':  # Else already set globally
+            print('HAP CTRL channel')
+            pass
+        elif pkm == 'DATA':
+            print('HAP DATA channel')
+            self.OUT_CIPHER_INFO = PKM['DR'][1]
+            self.IN_CIPHER_INFO = PKM['DW'][1]
+            self.CIPHER_SALT = PKM['DR'][0]
 
         self.shared_key = shared_key
         self.out_count = 0

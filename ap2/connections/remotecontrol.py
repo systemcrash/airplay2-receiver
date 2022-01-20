@@ -3,6 +3,7 @@ import struct
 import multiprocessing
 
 from ..utils import get_file_logger, get_screen_logger, get_free_socket
+from ..pairing.hap import HAPSocket
 
 
 class RemoteControl():
@@ -57,15 +58,29 @@ class RemoteControl():
         self.socket = get_free_socket(self.addr, tcp=True)
         self.port = self.socket.getsockname()[1] if not port else 0
         level = 'DEBUG' if self.isDebug else 'INFO'
-        self.logger = get_file_logger(self.__class__.__name__, level=level)
+        self.logger = get_screen_logger(self.__class__.__name__, level=level)
 
     def serve(self, rtsp_connection):
         # This pipe is between player (read data) and server (write data)
         # receive commands from rtsp_connection
+        # """
+        try:
+            self.logger.debug(f'getting socket: {self.socket}')
+            client_socket = self.socket.accept()
+            self.logger.debug(f'got client socket: {client_socket}')
+            self.hap_socket = HAPSocket(client_socket, self.shared_key)  # , pkm='DATA')
+            self.logger.debug('built HAPSocket')
+        except OSError:
+            pass
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.socket.close()
+        """
         try:
             conn, addr = self.socket.accept()
             if self.isDebug:
-                self.logger.debug(f"Open connection from {addr[0]}:{addr[1]}")
+                self.logger.debug(f"Open {self.__class__.__name__} connection from {addr[0]}:{addr[1]}")
             try:
                 while True:
                     data = conn.recv(4096, socket.MSG_WAITALL)
@@ -92,7 +107,7 @@ class RemoteControl():
             self.socket.close()
             if self.isDebug:
                 self.logger.debug(f"Closed listen on {self.addr}:{self.port}")
-
+        # """
     @classmethod
     def spawn(
         cls,
