@@ -14,6 +14,7 @@ from Crypto.Cipher import AES
 from av.audio.format import AudioFormat
 from collections import deque
 from operator import attrgetter
+from .session_properties import TimelineInfo
 
 
 from ..utils import get_file_logger, get_screen_logger, get_free_socket
@@ -356,6 +357,7 @@ class Audio:
         """ variables we get via RTCP from Control class """
         self.senderRtpTimestamp, self.playAtRtpTimestamp = None, None
         self.remoteClockMonotonic_ts, self.remoteClockId = None, None
+        self.networkTimelineAnchorNanos = None
 
     def init_audio_sink(self):
         codecLatencySec = 0
@@ -425,8 +427,7 @@ class Audio:
         self.audio_screen_logger.debug(f"audioDevicelatency (sec): {audioDevicelatency:0.5f}")
         pyAudioDelay = self.sink.get_output_latency()
         self.audio_screen_logger.debug(f"pyAudioDelay (sec): {pyAudioDelay:0.5f}")
-        ptpDelay = 0.002
-        self.sample_delay = pyAudioDelay + audioDevicelatency + codecLatencySec + ptpDelay
+        self.sample_delay = pyAudioDelay + audioDevicelatency + codecLatencySec
         self.audio_screen_logger.info(f"Total sample_delay (sec): {self.sample_delay:0.5f}")
 
     def decrypt(self, rtp):
@@ -500,7 +501,15 @@ class Audio:
             return 0
         rtp_ts_diff = rtp_ts - self.anchorRTPTimestamp
         millis_to_anchor = int((time.monotonic_ns() - self.anchorMonotonicNanosLocal) * 1e-6)
-        return int(1000 * rtp_ts_diff / self.sample_rate) - millis_to_anchor
+
+        if self.remoteClockMonotonic_ts and self.networkTimelineAnchorNanos:  # PTP
+            network_offset = ((self.remoteClockMonotonic_ts - self.networkTimelineAnchorNanos) * 1e-6)
+            # print(f'network_offset: {network_offset:3.3}')
+            return int(1000 * rtp_ts_diff / self.sample_rate) - millis_to_anchor + network_offset
+        else:
+            print(f'offset:{int(1000 * rtp_ts_diff / self.sample_rate) - millis_to_anchor} msec', end='\r', flush=False)
+
+            return int(1000 * rtp_ts_diff / self.sample_rate) - millis_to_anchor
 
     def msec_to_playout_with_outdev_delay(self, rtp_ts):
         return int(self.msec_to_playout(rtp_ts) - ((self.sample_delay * 1e3)))
@@ -787,7 +796,15 @@ class AudioBuffered(Audio):
                         elif str.startswith(message, "flush_from_until_seq"):
                             flush_from, flush_to = map(int, str.split(message, "-")[-2:])
                             serverconn.send(message)
-                            playing = False
+                    elif isinstance(message, TimelineInfo):
+                        self.remoteClockMonotonic_ts = message.remoteClockMonotonic_ts()
+                        self.masterCorrection = message.masterCorrection()
+                        self.networkTimelineAnchorNanos = message.networkTimelineAnchorNanos()
+                        self.rtpClockTimeAtSender = message.rtpClockTimeAtSender()
+                        self.audio_screen_logger.debug(f'audio remoteClockMonotonic_ts:   {self.remoteClockMonotonic_ts}')
+                        self.audio_screen_logger.debug(f'audio masterCorrection:          {self.masterCorrection}')
+                        self.audio_screen_logger.debug(f'audio networkTimelineAnchorNanos:{self.networkTimelineAnchorNanos}')
+                        self.audio_screen_logger.debug(f'audio rtpClockTimeAtSender:{self.rtpClockTimeAtSender}')
 
                 except (OSError, EOFError, BrokenPipeError) as e:
                     pass

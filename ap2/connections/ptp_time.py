@@ -937,7 +937,7 @@ class PTP():
             # 2019 / 8.2.2.4 currentDS.meanDelay: The data type should be TimeInterval
             self.meanDelay = self.meanPathDelay_ti
 
-            self.PTPcorrection = abs(self.meanPathDelay_ti) / (1e9)
+            self.PTPcorrection = abs(self.meanPathDelay_ti)  # / (1e9)
             # self.logger.debug(f"Current mean path delay (sec): {self.PTPcorrection:.09f}")
 
             self.gm_time_ns = t4 + self.meanPathDelay_ti
