@@ -308,7 +308,6 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
     timing_proc, ptp_proc = None, None
     fairplay_keymsg = None
     ecdh_shared_key = None
-    session = None
     hap = None
 
     # Maps paths to methods a la HAP-python
@@ -567,7 +566,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 plist = readPlistFromString(body)
                 self.logger.debug(self.pp.pformat(plist))
 
-                session = Session(plist, self.fairplay_keymsg)
+                if not self.server.session:
+                    """ Only set up session first time at connection """
+                    self.server.session = Session(plist, self.fairplay_keymsg)
 
                 if "streams" not in plist:
                     self.logger.debug("Sending EVENT:")
@@ -729,14 +730,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     body = self.rfile.read(content_len)
 
                     plist = readPlistFromString(body)
-                    if plist["rate"] == 1:
-                        for s in self.server.streams:
-                            if s.isAudio() and s.isInitialized():
-                                s.getAudioConnection().send(f"play-{plist['rtpTime']}")
-                    if plist["rate"] == 0:
-                        for s in self.server.streams:
-                            if s.isAudio() and s.isInitialized():
-                                s.getAudioConnection().send("pause")
+                    try:  # Sending thru a pipe, check for pipe related errors
+                        if plist["rate"] == 1:
+                            for s in self.server.streams:
+                                if s.isAudio() and s.isInitialized():
+                                    s.getAudioConnection().send(f"play-{plist['rtpTime']}")
+                        if plist["rate"] == 0:
+                            for s in self.server.streams:
+                                if s.isAudio() and s.isInitialized():
+                                    s.getAudioConnection().send("pause")
+                    except OSError:
+                        self.logger.error(f'SETRATEANCHORTIME error: {repr(e)}')
 
                     self.logger.info(self.pp.pformat(plist))
             except IndexError:
@@ -777,14 +781,6 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
         # Send flag that we're no longer active
         update_status_flags(StatusFlags.getRecvSessActive(StatusFlags))
-
-        try:
-            self.server.timing_proc.terminate()
-        except AttributeError:
-            pass
-
-        if len(self.server.streams) == 0:
-            session = None
 
     def do_SETPEERS(self):
         """
@@ -1209,7 +1205,7 @@ class AP2Server(socketserver.ThreadingTCPServer):
         self.timing_port = None
         self.enc_layer = False
         self.streams = []
-        self.sessions = []
+        self.session = None
         log_string = f'{self.__class__.__name__}: {self.serv_addr}:{self.serv_port}'
         level = 'DEBUG' if DEBUG else 'INFO'
         self.logger = get_screen_logger(log_string, level=level)
@@ -1236,6 +1232,7 @@ class AP2Server(socketserver.ThreadingTCPServer):
         self.hap_socket = None
         self.streams.clear()
         self.logger = None
+        self.session = None
         self.shutdown()
 
 
