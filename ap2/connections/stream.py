@@ -24,6 +24,7 @@ class Stream:
         self.addr = addr
         self.port = port
         self.audio_connection = None
+        self.control_conns = None
         self.initialized = False
 
         self.data_socket = None
@@ -71,7 +72,9 @@ class Stream:
             self.data_socket = get_free_socket(self.addr, tcp=True)
 
         if self.streamtype == Stream.REALTIME or self.streamtype == Stream.BUFFERED:
-            self.control_port, self.control_proc = Control.spawn(
+            self.control_proc, self.control_conns = Control.spawn(
+                controladdr_ours=self.control_socket,
+                dataaddr_ours=self.data_socket,
                 isDebug=self.isDebug,
             )
             self.audio_format = stream["audioFormat"]
@@ -98,6 +101,7 @@ class Stream:
                 self.audio_format, buffer,
                 self.spf,
                 self.streamtype,
+                control_conns=self.control_conns,
                 isDebug=self.isDebug,
                 aud_params=None,
             )
@@ -117,6 +121,7 @@ class Stream:
                 self.audio_format, buffer,
                 self.spf,
                 self.streamtype,
+                control_conns=self.control_conns,
                 isDebug=self.isDebug,
                 aud_params=None,
             )
@@ -177,6 +182,8 @@ class Stream:
 
         if self.streamtype == Stream.REALTIME or self.streamtype == Stream.BUFFERED:
             if self.control_proc:
+                for conn in self.control_conns:
+                    conn.close()
                 self.control_proc.terminate()
                 self.control_proc.join()
             self.data_proc.terminate()
