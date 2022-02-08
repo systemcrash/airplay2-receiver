@@ -40,6 +40,12 @@ STATUS_FLAGS = StatusFlags.GetDefaultStatusFlags(StatusFlags)
 # PI = Public ID (can be GUID, MAC, some string).
 #  Note: BINARY. HAP classes expect binary format. Must be in text in device_info.
 PI = b'aa5cb8df-7f14-4249-901a-5e748ce57a93'
+GROUP_UUID = None  # '5dccfd20-b166-49cc-a593-6abd5f724ddb'
+GCGL = False
+IS_GROUP_LEADER = False
+SESSION = None
+SENDER_ADDR = None
+STREAMS = []
 STREAM_ID = 0
 DEBUG = False
 
@@ -241,9 +247,9 @@ def setup_global_structs(args, isDebug=False):
         # flags (bitmask)
         "flags": get_hex_bitmask(STATUS_FLAGS),
         # Group Contains Group Leader.
-        "gcgl": "0",
+        # "gcgl": "0",
         # Group UUID (generated casually)
-        "gid": "5dccfd20-b166-49cc-a593-6abd5f724ddb",
+        # "gid": "5dccfd20-b166-49cc-a593-6abd5f724ddb",
         # isGroupLeader: See gcgl
         # "isGroupLeader": "0",
         "manufacturer": "OpenAirplay",
@@ -300,6 +306,27 @@ def setup_global_structs(args, isDebug=False):
         # Source version
         # "vs": "366",
     }
+    """ Remotes only react to the presence of the gid flag. How remotes
+    react to UUID(s) in the tag is <undefined> """
+    print(f'GROUP_UUID: {GROUP_UUID}')
+    if GROUP_UUID:
+        print('appending GROUP_UUID')
+        mdns_props['gid'] = GROUP_UUID
+        mdns_props['gcgl'] = '1' if GCGL else '0'
+        mdns_props['isGroupleader'] = '1' if IS_GROUP_LEADER else '0'
+        if SENDER_ADDR:
+            print('appending SENDER_ADDR to device_info')
+            device_info['senderAddress'] = SENDER_ADDR
+        else:
+            if 'senderAddress' in device_info:
+                del device_info['senderAddress']
+    else:
+        if 'gid' in mdns_props:
+            del mdns_props['gid']
+        if 'gcgl' in mdns_props:
+            del mdns_props['gcgl']
+        if 'isGroupleader' in mdns_props:
+            del mdns_props['isGroupleader']
 
 
 class AP2Handler(http.server.BaseHTTPRequestHandler):
@@ -481,7 +508,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     to = plist["flushUntilSeq"]
                     try:
                         for s in self.server.streams:
-                            if s.isAudio() and s.isInitialized():
+                            if s.isAudio() and s.isInitialized() and not s.isRCO():
                                 s.getAudioConnection().send(f"flush_from_until_seq-{fr}-{to}")
                     except OSError as e:
                         self.logger.error(f'FLUSHBUFFERED error: {repr(e)}')
@@ -493,6 +520,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.dispatch()
 
     def do_SETUP(self):
+        global GROUP_UUID, GCGL, IS_GROUP_LEADER
+        global SENDER_ADDR
+        global STREAMS
         dacp_id = self.headers.get("DACP-ID")
         active_remote = self.headers.get("Active-Remote")
         ua = self.headers.get("User-Agent")
@@ -578,6 +608,16 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     """ Only set up session first time at connection """
                     self.session = Session(plist, self.fairplay_keymsg)
 
+                if session.getSessionUUID():
+                    # The sessionUUID key determines whether this is a session.
+                    self.server.sessions.append(session)
+                    print(f'RCO?: {session.isRCO()}')
+                    if session.getGroupUUID() and not session.isRCO():
+                        GROUP_UUID = session.getGroupUUID()
+                        GCGL = True  # session.gCGL()  # TODO: or True? :)
+                        IS_GROUP_LEADER = True  # session.isGL()  # TODO: or true?
+                        SENDER_ADDR = f'{self.client_address[0]}:{self.client_address[1]}'
+
                 if "streams" not in plist:
                     self.logger.debug("Sending EVENT:")
                     self.server.event_port, self.server.event_proc = EventGeneric.spawn(
@@ -629,8 +669,11 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(res)
                     self.logger.info('')
-                    # Send flag that we're active
-                    update_status_flags(StatusFlags.getRecvSessActive(StatusFlags), on=True)
+                    # Set flag that we're active
+                    update_status_flags(StatusFlags.getRecvSessActive(StatusFlags), on=True, push=False)
+                # Push changes
+                if not session.isRCO():
+                    update_status_flags(push=True)
                 return
         self.send_error(404)
         self.logger.info('')
@@ -731,10 +774,18 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("CSeq", self.headers["CSeq"])
         # TODO: get actual playout latency
         self.send_header("Audio-Latency", "0")
-        self.end_headers()
         """
         if we are in a remote control session, we must send something here...
         """
+        if GROUP_UUID:
+            # Send device_info which now includes senderAddress (sender of groupUUID)
+            res = writePlistToString({'type': 'updateInfo', 'value': device_info})
+            self.send_header("Content-Length", len(res))
+            self.send_header("Content-Type", HTTP_CT_BPLIST)
+        self.end_headers()
+        if GROUP_UUID:
+            self.wfile.write(res)
+    # End do_RECORD
 
     def do_SETRATEANCHORTIME(self):
         self.logger.info(f'{self.command}: {self.path}')
@@ -789,6 +840,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                         self.server.streams[:] = [s for s in self.server.streams if not s.isCulled()]
                 self.logger.info(self.pp.pformat(plist))
                 if plist == {} and len(self.server.streams) == 0:
+                    # Signal that session(?) is over: TODO: look at source
+                    # HACK: Should look at which session the GUUID came from.
+                    GROUP_UUID = None
                     self.server.event_proc.terminate()
         self.send_response(200)
         self.send_header("Server", self.version_string())
@@ -863,7 +917,8 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
             rtptime = rtptime.split('=')[1]
             try:
                 for s in self.server.streams:
-                    s.getAudioConnection().send(f"flush_seq_rtptime-{seq}-{rtptime}")
+                    if s.isAudio() and s.isInitialized() and not s.isRCO():
+                        s.getAudioConnection().send(f"flush_seq_rtptime-{seq}-{rtptime}")
             except OSError as e:
                 self.logger.error(f'FLUSH error: {repr(e)}')
 

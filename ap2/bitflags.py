@@ -159,7 +159,7 @@ class FeatureFlags(IntFlag):
             | self.Ft20ReceiveAudioAAC_LC | self.Ft19ReceiveAudioALAC | self.Ft18ReceiveAudioPCM
             | self.Ft17AudioMetaTxtDAAP
             | self.Ft16AudioMetaProgress
-            # | self.Ft15AudioMetaCovers
+            | self.Ft15AudioMetaCovers
             | self.Ft14MFiSoft_FairPlay | self.Ft09AirPlayAudio
         )
 
