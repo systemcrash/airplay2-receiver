@@ -5,6 +5,7 @@ import random
 from .control import Control
 from .audio import AudioRealtime, AudioBuffered
 from .stream_connection import StreamConnection
+from .remotecontrol import RemoteControl
 from ap2.utils import get_free_socket
 
 
@@ -12,6 +13,7 @@ class Stream:
 
     REALTIME = 96
     BUFFERED = 103
+    REMOTE_CONTROL = 130
 
     def __init__(self, stream, addr, port=0, buff_size=0, stream_id=None, shared_key=None, isDebug=False, aud_params=None):
         # self.audioMode = stream["audioMode"] # default|moviePlayback
@@ -141,7 +143,42 @@ class Stream:
             if self.has_scs:
                 self.descriptor['streamConnections'] = self.streamConnections.getSCs()
 
+        elif self.streamtype == Stream.REMOTE_CONTROL:
+            cID = 'channelID'
+            self.cID = stream[cID] if cID in stream else ''
+            cTUUID = 'clientTypeUUID'
+            self.clientTypeUUID = stream[cTUUID] if cTUUID in stream else ''
+            cUUID = 'clientUUID'
+            self.cUUID = stream[cUUID] if cUUID in stream else ''
+            sUUID = 'sessionUUID'
+            self.sUUID = stream[sUUID] if sUUID in stream else ''
+            cT = 'controlType'
+            self.controlType = stream[cT] if cT in stream else ''
+            wDS = 'wantsDedicatedSocket'
+            self.wDS = stream[wDS] if wDS in stream else ''
+            self.seed = stream['seed'] if 'seed' in stream else ''
+
+            self.data_port, self.data_proc, self.remote_connection = RemoteControl.spawn(
+                addr=self.addr,
+                port=self.port,
+                stream=stream,
+                shared_key=self.shared_key,
+                isDebug=self.isDebug,
+            )
+            self.descriptor = {
+                'type': self.streamtype,
+                # cT: self.controlType,
+                # cID': self.cID,
+                'dataPort': self.data_port,
+                # return a streamID to maintain connection (i.e. "we're playing sthg")
+                'streamID': self.streamID,
+            }
+
         self.initialized = True
+
+    def isRCO(self):
+        """ set to isRCO to align with session function, avoid confusion """
+        return self.streamtype == Stream.REMOTE_CONTROL
 
     def isAudio(self):
         return self.streamtype == Stream.BUFFERED or self.streamtype == Stream.REALTIME
@@ -167,6 +204,14 @@ class Stream:
     def getDataProc(self):
         return self.data_proc
 
+    """ # For when we move Events here
+    def getEventPort(self):
+        return self.event_port
+
+    def getEventProc(self):
+        return self.event_proc
+    """
+
     def getAudioConnection(self):
         return self.audio_connection
 
@@ -176,6 +221,10 @@ class Stream:
             msg += f'controlPort={self.getControlPort()} '
         if self.getDataPort() != 0:
             msg += f'dataPort={self.getDataPort()} '
+        """
+        if self.getEventPort() != 0:
+            msg += f'eventPort={self.getEventPort()} '
+        """
         return msg
 
     def getDescriptor(self):
@@ -196,3 +245,11 @@ class Stream:
             self.data_proc.terminate()
             self.data_proc.join()
             self.audio_connection.close()
+        if self.streamtype == Stream.REMOTE_CONTROL:
+            self.data_proc.terminate()
+            self.data_proc.join()
+            if self.control_proc:
+                self.control_proc.terminate()
+                self.control_proc.join()
+            if self.remote_connection:
+                self.remote_connection.close()

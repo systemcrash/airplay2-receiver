@@ -732,6 +732,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
         # TODO: get actual playout latency
         self.send_header("Audio-Latency", "0")
         self.end_headers()
+        """
+        if we are in a remote control session, we must send something here...
+        """
 
     def do_SETRATEANCHORTIME(self):
         self.logger.info(f'{self.command}: {self.path}')
