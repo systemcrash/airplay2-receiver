@@ -514,6 +514,8 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     except OSError as e:
                         self.logger.error(f'FLUSHBUFFERED error: {repr(e)}')
                         pass
+                    except AttributeError as e:
+                        pass
 
                 self.logger.debug(self.pp.pformat(plist))
 
@@ -607,7 +609,7 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
 
                 if not self.session:
                     """ Only set up session first time at connection """
-                    self.session = Session(plist, self.fairplay_keymsg)
+                    session = Session(plist, self.fairplay_keymsg)
 
                 if session.getSessionUUID():
                     # The sessionUUID key determines whether this is a session.
@@ -736,6 +738,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                                 s.getAudioConnection().send(f"progress-{pp[1].decode('utf8').lstrip(' ')}")
                         except OSError as e:
                             self.logger.error(f'SET_PARAMETER error: {repr(e)}')
+                        except AttributeError as e:
+                            # Conn not ready yet
+                            pass
 
                         self.logger.info(f"SET_PARAMETER: {pp[0]} => {pp[1]}")
                     # else:
@@ -809,6 +814,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                                     s.getAudioConnection().send("pause")
                     except OSError:
                         self.logger.error(f'SETRATEANCHORTIME error: {repr(e)}')
+                    except AttributeError:
+                        # Pipe not set up yet.
+                        pass
 
                     self.logger.info(self.pp.pformat(plist))
             except IndexError:
@@ -922,6 +930,9 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                         s.getAudioConnection().send(f"flush_seq_rtptime-{seq}-{rtptime}")
             except OSError as e:
                 self.logger.error(f'FLUSH error: {repr(e)}')
+            except AttributeError as e:
+                # Not ready yet
+                pass
 
         self.send_response(200)
         self.send_header("Server", self.version_string())
