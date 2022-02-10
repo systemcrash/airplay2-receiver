@@ -33,6 +33,7 @@ from ap2.connections.session_properties import Session
 from ap2.dxxp import parse_dxxp
 from ap2.bitflags import FeatureFlags, StatusFlags
 from ap2.sdphandler import SDPHandler
+from ap2.mediaremotecommands import MediaCommandParser, MRNowPlayingInfo
 
 FEATURES = FeatureFlags.GetDefaultAirplayTwoFlags(FeatureFlags)
 STATUS_FLAGS = StatusFlags.GetDefaultStatusFlags(StatusFlags)
@@ -934,23 +935,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                 body = self.rfile.read(content_len)
 
                 plist = readPlistFromString(body)
-                newin = []
-                if "mrSupportedCommandsFromSender" in plist["params"]:
-                    for p in plist["params"]["mrSupportedCommandsFromSender"]:
-                        iplist = readPlistFromString(p)
-                        newin.append(iplist)
-                    plist["params"]["mrSupportedCommandsFromSender"] = newin
-                if "params" in plist["params"] and "kMRMediaRemoteNowPlayingInfoArtworkData" in plist["params"]["params"]:
-                    plist["params"]["params"]["kMRMediaRemoteNowPlayingInfoArtworkData"] = "<redacted ..too long>"
-                # don't print this massive blob - one day we may use it though.
-                # self.logger.debug(plist)  # self.logger.info(self.pp.pformat(plist))
+
+                mcp = MediaCommandParser(plist)
+                self.logger.debug(mcp.getSupported())
+
         self.send_response(200)
         self.send_header("Server", self.version_string())
         self.send_header("CSeq", self.headers["CSeq"])
         # self.end_headers()
         remote_reply = b'\x00\x00\x00Jrply\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01aU\xc3\xe0\x00\x00\x00\x00bplist00\xd0\x08\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\t'
         res = writePlistToString(remote_reply)
-        self.logger.debug(res)
+        # self.logger.debug(res)
         self.send_header("Content-Length", len(res))
         self.send_header("Content-Type", HTTP_CT_BPLIST)
         self.end_headers()
