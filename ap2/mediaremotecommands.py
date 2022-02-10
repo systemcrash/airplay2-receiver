@@ -1,9 +1,9 @@
 from biplist import readPlistFromString, writePlistToString
 from enum import IntFlag
 """ with pyatv parts by pierre @postlund, maker of pyatv """
-"""
-from pyatv.protocols.mrp import protobuf
-"""
+# """
+import protobuf
+# """
 
 
 class SupportedCommands(IntFlag):
@@ -183,12 +183,12 @@ class MediaCommandParser():
 
             message = raw[:length]
             data = raw[length:]
-
-            """
+            print(message)
+            # """
             pb_msg = protobuf.ProtocolMessage()
             pb_msg.ParseFromString(message)
             print(pb_msg)
-            """
+            # """
 
     def getSupported(self):
         return '\n' + str(SupportedCommands(self.supported))
