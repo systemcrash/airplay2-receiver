@@ -28,6 +28,8 @@ from ap2.dxxp import parse_dxxp
 from ap2.bitflags import FeatureFlags, StatusFlags
 from ap2.sdphandler import SDPHandler
 
+from ap2.connections.ptp_time import PTP
+
 FEATURES = FeatureFlags.GetDefaultAirplayTwoFlags(FeatureFlags)
 STATUS_FLAGS = StatusFlags.GetDefaultStatusFlags(StatusFlags)
 
@@ -575,6 +577,17 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     """ Only set up session first time at connection """
                     self.session = Session(plist, self.fairplay_keymsg)
 
+                if self.session.getTimingProtocol() == 'PTP' and not self.server.timing_proc:
+                    self.logger.info('PTP Startup')
+                    mac = int(DEVICE_ID.replace(":", ""), 16)
+                    self.server.timing_proc, self.server.ptp_link = PTP.spawn(
+                        if_mac=mac,
+                        IFEN=IFEN,
+                        IPV4=IPV4,
+                        IPV6=IPV6,
+                        p_flags=0x4000 - 0x1
+                    )
+
                 if "streams" not in plist:
                     self.logger.debug("Sending EVENT:")
                     self.server.event_port, self.server.event_proc = EventGeneric.spawn(
@@ -740,16 +753,47 @@ class AP2Handler(http.server.BaseHTTPRequestHandler):
                     body = self.rfile.read(content_len)
 
                     plist = readPlistFromString(body)
+
+                    self.session.setRateAnchorTimePTP(plist)
+                    timelineinfo = None
+
+                    """ Roughly:
+                    1) get master nanos via PTP.
+                    2) prepare network timeline info
+                    3) pass master_nanos, timeline info, and rate to audio stream
+                    """
+
                     try:  # Sending thru a pipe, check for pipe related errors
+
+                        if self.session.getTimingProtocol() == 'PTP' and self.server.timing_proc:
+                            self.server.ptp_link.send("get_ptp_master_nanos")
+                            if self.server.ptp_link.poll(None):
+                                master_Nanos = int(self.server.ptp_link.recv())
+                            self.server.ptp_link.send("get_ptp_master_correction")
+                            if self.server.ptp_link.poll(None):
+                                master_Correction = int(self.server.ptp_link.recv())
+                            """
+                            self.logger.debug('master__Nanos:', master_Nanos)
+                            self.logger.debug('master_Correction:', master_Correction)
+                            self.logger.debug('master__Nanos(corrected):', master_Nanos + master_Correction)
+
+                            self.logger.debug('timelineNanos:', anchorTimelineNanos)
+                            self.logger.debug('master_Nanos(corrected) - timelineNanos:', (master_Nanos + master_Correction) - anchorTimelineNanos)
+                            """
+                            timelineinfo = self.session.getTimelineInfo(master_Nanos, master_Correction)
+
+
                         if plist["rate"] == 1:
                             for s in self.server.streams:
                                 if s.isAudio() and s.isInitialized():
                                     s.getAudioConnection().send(f"play-{plist['rtpTime']}")
+                                    if timelineinfo:
+                                        s.getAudioConnection().send(timelineinfo)
                         if plist["rate"] == 0:
                             for s in self.server.streams:
                                 if s.isAudio() and s.isInitialized():
                                     s.getAudioConnection().send("pause")
-                    except OSError:
+                    except (BrokenPipeError, EOFError, OSError) as e:
                         self.logger.error(f'SETRATEANCHORTIME error: {repr(e)}')
 
                     self.logger.info(self.pp.pformat(plist))
@@ -1234,6 +1278,7 @@ class AP2Server(socketserver.ThreadingTCPServer):
         self.event_port = None
         self.timing_proc = None
         self.timing_port = None
+        self.ptp_link = None
         self.enc_layer = False
         self.streams = []
         self.sessions = []

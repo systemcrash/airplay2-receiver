@@ -109,8 +109,10 @@ class Session():
             """ we don't do calculations so we could keep rate as txt """
             self.rate = int(plist['rate'])
 
-    def getTimelineInfo(self):
+    def getTimelineInfo(self, rcmts, mc):
         return TimelineInfo(
+            rcmts,
+            mc,
             self.networkTimelineAnchorNanos,
             self.rtpClockTimeAtSender
         )
@@ -191,10 +193,17 @@ class Session():
 
 class TimelineInfo():
     """ object for passing timeline specifics e.g. to audio module """
-    def __init__(self, ntlan, rctas):
-
+    def __init__(self, rcmts, mc, ntlan, rctas):
+        self.rcmts = int(rcmts)
+        self.mc = int(mc)
         self.ntlan = int(ntlan)
         self.rctas = int(rctas)
+
+    def remoteClockMonotonic_ts(self):
+        return self.rcmts
+
+    def masterCorrection(self):
+        return self.mc
 
     def networkTimelineAnchorNanos(self):
         return self.ntlan
